@@ -1,0 +1,30 @@
+# Environment
+.env
+venv/
+.venv/
+__pycache__/
+*.pyc
+.Python
+
+# Data (raw files too large for git)
+data/raw/
+data/processed/
+*.csv
+!data/sample/*.csv
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Distribution
+*.egg-info/
+dist/
+build/
