@@ -1,81 +1,73 @@
-"""LLM client wrapper — supports Anthropic (Claude) and OpenAI with automatic fallback."""
+"""LLM client wrapper — uses Anthropic SDK directly."""
 import json
 import logging
+import os
+import re
 from typing import Optional
 
-from src.config import (
-    ANTHROPIC_API_KEY,
-    ANTHROPIC_MODEL,
-    LLM_PROVIDER,
-    OPENAI_API_KEY,
-    OPENAI_MODEL,
-)
+import anthropic
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-
-def get_llm_client():
-    """Return the appropriate LangChain chat model based on available API keys."""
-    if LLM_PROVIDER == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-
-        logger.info(f"Using Anthropic ({ANTHROPIC_MODEL})")
-        return ChatAnthropic(
-            model=ANTHROPIC_MODEL,
-            api_key=ANTHROPIC_API_KEY,
-            temperature=0.1,
-            max_tokens=4096,
-        )
-    elif LLM_PROVIDER == "openai":
-        from langchain_openai import ChatOpenAI
-
-        logger.info(f"Using OpenAI ({OPENAI_MODEL})")
-        return ChatOpenAI(
-            model=OPENAI_MODEL,
-            api_key=OPENAI_API_KEY,
-            temperature=0.1,
-            max_tokens=4096,
-        )
-    else:
-        raise ValueError(
-            "No LLM API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY in .env"
-        )
+MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+_client: Optional[anthropic.Anthropic] = None
 
 
-def call_llm_structured(
+def get_client() -> anthropic.Anthropic:
+    """Return a singleton Anthropic client."""
+    global _client
+    if _client is None:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY not set in environment")
+        _client = anthropic.Anthropic(api_key=api_key)
+        logger.info(f"Anthropic client initialized (model={MODEL})")
+    return _client
+
+
+def ask_claude(
     prompt: str,
-    system_prompt: str = "",
-    response_format: Optional[dict] = None,
+    system: str = "You are a helpful assistant.",
+    max_tokens: int = 2048,
 ) -> str:
-    """Call the LLM and return the text response. Handles both providers."""
-    client = get_llm_client()
-    messages = []
-    if system_prompt:
-        from langchain_core.messages import HumanMessage, SystemMessage
-
-        messages.append(SystemMessage(content=system_prompt))
-        messages.append(HumanMessage(content=prompt))
-    else:
-        from langchain_core.messages import HumanMessage
-
-        messages.append(HumanMessage(content=prompt))
-
-    response = client.invoke(messages)
-    return response.content
+    """Call Claude and return the text response."""
+    client = get_client()
+    resp = client.messages.create(
+        model=MODEL,
+        max_tokens=max_tokens,
+        system=system,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.content[0].text
 
 
-def call_llm_json(
+def ask_claude_json(
     prompt: str,
-    system_prompt: str = "You are a helpful assistant. Always respond with valid JSON only, no markdown fences.",
+    system: str = "You are a helpful assistant. Always respond with valid JSON only, no markdown fences.",
+    max_tokens: int = 2048,
+    retries: int = 1,
 ) -> dict:
-    """Call the LLM and parse the response as JSON."""
-    raw = call_llm_structured(prompt, system_prompt=system_prompt)
-    # Strip markdown fences if present
-    cleaned = raw.strip()
-    if cleaned.startswith("```json"):
-        cleaned = cleaned[7:]
-    if cleaned.startswith("```"):
-        cleaned = cleaned[3:]
-    if cleaned.endswith("```"):
-        cleaned = cleaned[:-3]
-    return json.loads(cleaned.strip())
+    """Call Claude and return a parsed JSON dict. Retries once on parse failure."""
+    for attempt in range(retries + 1):
+        raw = ask_claude(prompt, system=system, max_tokens=max_tokens)
+        cleaned = _strip_fences(raw)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            if attempt < retries:
+                logger.warning(f"JSON parse failed (attempt {attempt + 1}): {e}. Retrying...")
+            else:
+                logger.error(f"JSON parse failed after {retries + 1} attempts. Raw: {raw[:200]}")
+                raise
+
+
+def _strip_fences(text: str) -> str:
+    """Strip markdown code fences from a string."""
+    text = text.strip()
+    # Remove ```json ... ``` or ``` ... ```
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()
