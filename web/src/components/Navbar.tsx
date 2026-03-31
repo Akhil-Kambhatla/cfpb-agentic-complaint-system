@@ -2,45 +2,90 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion } from "framer-motion";
-import { Brain, BarChart3, Home } from "lucide-react";
+import { Brain } from "lucide-react";
 
-const links = [
-  { href: "/", label: "Home", icon: Home },
-  { href: "/analyze", label: "Analyze", icon: Brain },
-  { href: "/evaluation", label: "Evaluation", icon: BarChart3 },
+const tabs = [
+  { href: "/analyze", label: "Analyze" },
+  { href: "/evaluation", label: "Evaluation" },
 ];
 
 export default function Navbar() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-slate-950/80 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20 ring-1 ring-emerald-500/40">
-            <Brain className="h-4 w-4 text-emerald-400" />
+    <nav
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 50,
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(3,7,18,0.85)",
+        backdropFilter: "blur(12px)",
+        height: "56px",
+        display: "flex",
+        alignItems: "center",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: "1400px",
+          margin: "0 auto",
+          width: "100%",
+          padding: "0 24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        {/* Brand */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              background: "rgba(16,185,129,0.15)",
+              border: "1px solid rgba(16,185,129,0.35)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Brain style={{ width: 16, height: 16, color: "#10b981" }} />
           </div>
-          <span className="text-sm font-semibold text-white">CFPB Intelligence</span>
-        </Link>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", lineHeight: 1.2 }}>
+              CFPB Complaint Intelligence System
+            </p>
+            <p style={{ fontSize: 10, color: "#64748b", lineHeight: 1.2 }}>
+              Multi-Agent AI with Causal Counterfactual Analysis
+            </p>
+          </div>
+        </div>
 
-        <div className="flex items-center gap-1">
-          {links.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href;
+        {/* Tabs */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {tabs.map(({ href, label }) => {
+            const active = pathname === href || (href === "/analyze" && pathname === "/");
             return (
-              <Link key={href} href={href}>
-                <motion.div
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ${
-                    active
-                      ? "bg-white/10 text-white"
-                      : "text-slate-400 hover:text-white"
-                  }`}
+              <Link key={href} href={href} style={{ textDecoration: "none" }}>
+                <div
+                  style={{
+                    padding: "6px 16px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: active ? 600 : 400,
+                    color: active ? "#f1f5f9" : "#94a3b8",
+                    background: active ? "rgba(255,255,255,0.08)" : "transparent",
+                    border: active ? "1px solid rgba(255,255,255,0.12)" : "1px solid transparent",
+                    transition: "all 0.15s ease",
+                    cursor: "pointer",
+                  }}
                 >
-                  <Icon className="h-3.5 w-3.5" />
                   {label}
-                </motion.div>
+                </div>
               </Link>
             );
           })}

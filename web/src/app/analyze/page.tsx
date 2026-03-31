@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown,
@@ -14,8 +14,13 @@ import {
   ShieldCheck,
   AlertTriangle,
   RefreshCw,
+  CreditCard,
+  Building2,
+  Home,
+  Landmark,
 } from "lucide-react";
 import dynamic from "next/dynamic";
+import { useAnalysis } from "@/contexts/AnalysisContext";
 import {
   AgentCardWrapper,
   ClassifierCard,
@@ -25,322 +30,474 @@ import {
   QualityCheckCard,
 } from "@/components/AgentCard";
 import QualityBadge from "@/components/QualityBadge";
-import { analyzeComplaint, getSampleComplaints } from "@/lib/api";
-import type {
-  AgentName,
-  AgentState,
-  ClassificationOutput,
-  CausalAnalysisOutput,
-  RoutingOutput,
-  ResolutionOutput,
-  QualityCheckOutput,
-  SampleComplaint,
-} from "@/types";
+import ReasoningLog from "@/components/ReasoningLog";
+import RiskDashboard from "@/components/RiskDashboard";
 
-// React Flow must be client-side only
-const AgentFlowDiagram = dynamic(() => import("@/components/AgentFlowDiagram"), {
-  ssr: false,
-  loading: () => (
-    <div className="h-48 rounded-xl border border-white/10 bg-slate-900/60 flex items-center justify-center">
-      <Loader2 className="h-6 w-6 text-slate-500 animate-spin" />
-    </div>
-  ),
-});
-
-const AGENTS: AgentName[] = ["classifier", "causal_analyst", "router", "resolution", "quality_check"];
-
-const INITIAL_STATES: Record<string, AgentState> = Object.fromEntries(
-  AGENTS.map((a) => [a, { status: "idle" }])
+const AgentFlowDiagram = dynamic(
+  () => import("@/components/AgentFlowDiagram"),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        style={{
+          height: 620,
+          borderRadius: 16,
+          border: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(3,7,18,0.6)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Loader2 style={{ width: 24, height: 24, color: "#334155" }} className="animate-spin" />
+      </div>
+    ),
+  }
 );
 
-type AnalysisPhase = "idle" | "running" | "complete" | "error";
+// ─── Hardcoded sample complaints ──────────────────────────────────────────────
+
+const SAMPLES = [
+  {
+    id: "s1",
+    product: "Credit Card",
+    icon: CreditCard,
+    iconColor: "#38bdf8",
+    excerpt:
+      "I booked a hotel through my Citi credit card travel portal. My flight was delayed and the hotel charged me $850 plus 15,000 points. Citi ruled it was my responsibility after a 45-day investigation.",
+    narrative: `I booked a hotel through my Citi credit card travel portal for a trip in January. My flight was delayed due to weather and I could not check in on time. I called the hotel and they told me to contact Citi since I booked through their portal. I called Citi twice — both times they promised to resolve the issue and said they would call me back. They never did. By the next morning the hotel had charged me the full $850 room rate plus 15,000 ThankYou points. I filed a billing dispute with Citi and after 45 days they ruled it was my responsibility. When I asked for the investigation documents they said they could not provide them. I believe Citi violated my rights under the Fair Credit Billing Act by failing to conduct a proper investigation.`,
+  },
+  {
+    id: "s2",
+    product: "Debt Collection",
+    icon: Building2,
+    iconColor: "#f43f5e",
+    excerpt:
+      "A debt collector keeps contacting me about a medical bill I already paid a year ago. They've reported it to all three credit bureaus, dropping my score 85 points, and called my elderly mother.",
+    narrative: `I keep receiving calls and letters from a debt collection agency about a medical bill that I already paid in full over a year ago. I have sent them proof of payment three times — bank statements and a receipt from the hospital — but they continue to harass me. They have now reported this debt to all three credit bureaus, dropping my score by 85 points. They also called my elderly mother trying to get information about me, which I never authorized. I want them to stop contacting me and remove the false reporting.`,
+  },
+  {
+    id: "s3",
+    product: "Mortgage",
+    icon: Home,
+    iconColor: "#a78bfa",
+    excerpt:
+      "Our mortgage servicer force-placed a $3,200 insurance policy after a brief lapse. We sent proof of new coverage but they still charged us, raising our monthly payment by $267.",
+    narrative: `Our mortgage company force-placed an insurance policy on our home after a brief lapse in coverage. We immediately got new insurance and sent proof to the servicer, but they are still charging us $3,200 for backdated insurance that multiple insurance agents told us is illegal to issue. They added this to our escrow and our monthly payment increased by $267. When we call, each representative tells us something different and no one can explain the charges.`,
+  },
+  {
+    id: "s4",
+    product: "Checking Account",
+    icon: Landmark,
+    iconColor: "#34d399",
+    excerpt:
+      "I deposited $2,500 cash at a Chase branch but the teller recorded only $1,300. After 45 minutes waiting for the manager, they confirmed the shortage but my claim was denied.",
+    narrative: `I deposited $2,500 cash at a Chase branch. The teller ran the money through the counter and put it in her drawer before confirming the amount. The screen showed $1,300 instead of $2,500. When I objected, they said they could not recount because the money was in the drawer. After 45 minutes of waiting for the manager to balance the drawer, they confirmed only $1,300. I am missing $1,200 and the branch manager told me to file a claim, which was denied.`,
+  },
+];
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AnalyzePage() {
-  const [narrative, setNarrative] = useState("");
-  const [company, setCompany] = useState("");
-  const [state, setState] = useState("");
+  const {
+    narrative,
+    company,
+    state,
+    setNarrative,
+    setCompany,
+    setState,
+    phase,
+    error,
+    agentStates,
+    log,
+    classification,
+    causalAnalysis,
+    routing,
+    resolution,
+    qualityCheck,
+    totalTime,
+    handleAnalyze,
+    resetAnalysis,
+  } = useAnalysis();
+
+  const [inputCollapsed, setInputCollapsed] = useState(false);
   const [metaOpen, setMetaOpen] = useState(false);
-
-  const [samples, setSamples] = useState<SampleComplaint[]>([]);
-  const [selectedSample, setSelectedSample] = useState("");
-
-  const [phase, setPhase] = useState<AnalysisPhase>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [agentStates, setAgentStates] = useState<Record<string, AgentState>>(INITIAL_STATES);
-
-  // Typed results
-  const [classification, setClassification] = useState<ClassificationOutput | null>(null);
-  const [causalAnalysis, setCausalAnalysis] = useState<CausalAnalysisOutput | null>(null);
-  const [routing, setRouting] = useState<RoutingOutput | null>(null);
-  const [resolution, setResolution] = useState<ResolutionOutput | null>(null);
-  const [qualityCheck, setQualityCheck] = useState<QualityCheckOutput | null>(null);
-
-  const abortRef = useRef<AbortController | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  // Load sample complaints
-  useEffect(() => {
-    getSampleComplaints()
-      .then(setSamples)
-      .catch(() => {/* silently ignore if API offline */});
-  }, []);
+  const isRunning = phase === "running";
+  const hasResults = phase === "complete" || classification !== null;
+  const hasStarted = phase !== "idle";
 
-  const handleSampleSelect = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const id = e.target.value;
-      setSelectedSample(id);
-      const s = samples.find((s) => s.id === id);
-      if (s) {
-        setNarrative(s.narrative);
-        setCompany(s.company);
-        setState(s.state);
-      }
-    },
-    [samples]
-  );
-
-  const resetState = () => {
-    setAgentStates(INITIAL_STATES);
-    setClassification(null);
-    setCausalAnalysis(null);
-    setRouting(null);
-    setResolution(null);
-    setQualityCheck(null);
-    setError(null);
-  };
-
-  const handleAnalyze = async () => {
-    if (!narrative.trim()) return;
-    resetState();
-    setPhase("running");
-
-    try {
-      for await (const event of analyzeComplaint(narrative.trim(), { company, state })) {
-        const agentKey = event.agent;
-
-        if (event.status === "running") {
-          setAgentStates((prev) => ({
-            ...prev,
-            [agentKey]: { status: "running" },
-          }));
-        } else if (event.status === "complete") {
-          if (agentKey !== "pipeline") {
-            setAgentStates((prev) => ({
-              ...prev,
-              [agentKey]: { status: "complete", elapsed: event.elapsed, result: event.result },
-            }));
-          }
-
-          // Store typed results
-          if (agentKey === "classifier") setClassification(event.result as ClassificationOutput);
-          if (agentKey === "causal_analyst") setCausalAnalysis(event.result as CausalAnalysisOutput);
-          if (agentKey === "router") setRouting(event.result as RoutingOutput);
-          if (agentKey === "resolution") setResolution(event.result as ResolutionOutput);
-          if (agentKey === "quality_check") setQualityCheck(event.result as QualityCheckOutput);
-
-          if (agentKey === "pipeline") {
-            setPhase("complete");
-            setTimeout(() => {
-              resultsRef.current?.scrollIntoView({ behavior: "smooth" });
-            }, 300);
-          }
-        } else if (event.status === "error") {
-          throw new Error(event.message ?? "Pipeline error");
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Analysis failed");
-      setPhase("error");
+  const loadSample = (id: string) => {
+    const s = SAMPLES.find((x) => x.id === id);
+    if (s) {
+      setNarrative(s.narrative);
+      setCompany("");
+      setState("");
     }
   };
 
-  const allComplete = AGENTS.every((a) => agentStates[a]?.status === "complete");
+  const handleSubmit = async () => {
+    setInputCollapsed(true);
+    await handleAnalyze();
+    setTimeout(() => {
+      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 400);
+  };
+
+  const handleReset = () => {
+    resetAnalysis();
+    setInputCollapsed(false);
+    setMetaOpen(false);
+  };
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10 space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Complaint Analysis</h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Paste a complaint narrative or select a sample, then click Analyze.
-        </p>
-      </div>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 24px", display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* ── SECTION A: Input ─────────────────────────────────────────────────── */}
+      <div
+        style={{
+          borderRadius: 16,
+          border: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(255,255,255,0.02)",
+          overflow: "hidden",
+        }}
+      >
+        {/* Header row when collapsed */}
+        {inputCollapsed ? (
+          <button
+            onClick={() => setInputCollapsed(false)}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "14px 20px",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#94a3b8" }}>Complaint Input</span>
+              <span
+                style={{
+                  fontSize: 10,
+                  color: "#334155",
+                  padding: "1px 6px",
+                  borderRadius: 4,
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
+                {narrative.length} chars
+              </span>
+            </div>
+            <ChevronDown style={{ width: 14, height: 14, color: "#475569" }} />
+          </button>
+        ) : (
+          <div style={{ padding: "20px 20px 16px" }}>
+            {/* Section label */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div>
+                <h1 style={{ fontSize: 20, fontWeight: 700, color: "#f1f5f9", margin: 0 }}>
+                  Analyze a Complaint
+                </h1>
+                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+                  Select a sample or paste your own narrative
+                </p>
+              </div>
+              {hasStarted && (
+                <button
+                  onClick={handleReset}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "6px 12px",
+                    borderRadius: 8,
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    background: "transparent",
+                    color: "#64748b",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  <RefreshCw style={{ width: 12, height: 12 }} />
+                  New Analysis
+                </button>
+              )}
+            </div>
 
-      {/* Input section */}
-      <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4">
-        {/* Sample selector */}
-        {samples.length > 0 && (
-          <div>
-            <label className="block text-xs text-slate-400 mb-1.5">Load sample complaint</label>
-            <select
-              value={selectedSample}
-              onChange={handleSampleSelect}
-              className="w-full rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-            >
-              <option value="">— Select a sample —</option>
-              {samples.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.product} — {s.issue}
-                </option>
-              ))}
-            </select>
+            {/* Sample cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
+              {SAMPLES.map((s) => {
+                const Icon = s.icon;
+                const isSelected = narrative === s.narrative;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => loadSample(s.id)}
+                    style={{
+                      borderRadius: 10,
+                      border: `1px solid ${isSelected ? "rgba(16,185,129,0.4)" : "rgba(255,255,255,0.07)"}`,
+                      background: isSelected ? "rgba(16,185,129,0.06)" : "rgba(255,255,255,0.02)",
+                      padding: "10px 12px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <div
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: 5,
+                          background: `${s.iconColor}18`,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Icon style={{ width: 11, height: 11, color: s.iconColor }} />
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: s.iconColor }}>
+                        {s.product}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 10, color: "#64748b", lineHeight: 1.45, margin: 0 }}>
+                      {s.excerpt}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Textarea */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6 }}>
+                Complaint narrative *
+              </label>
+              <textarea
+                value={narrative}
+                onChange={(e) => setNarrative(e.target.value)}
+                placeholder="Paste a consumer complaint narrative here, or select a sample above..."
+                rows={6}
+                style={{
+                  width: "100%",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(3,7,18,0.6)",
+                  padding: "10px 14px",
+                  fontSize: 12,
+                  color: "#e2e8f0",
+                  fontFamily: "monospace",
+                  resize: "none",
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+              <p style={{ fontSize: 10, color: "#334155", marginTop: 3 }}>{narrative.length} characters</p>
+            </div>
+
+            {/* Metadata toggle */}
+            <div style={{ marginBottom: 14 }}>
+              <button
+                onClick={() => setMetaOpen(!metaOpen)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 11,
+                  color: "#475569",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                {metaOpen ? (
+                  <ChevronUp style={{ width: 12, height: 12 }} />
+                ) : (
+                  <ChevronDown style={{ width: 12, height: 12 }} />
+                )}
+                Optional metadata (company, state)
+              </button>
+              <AnimatePresence>
+                {metaOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    style={{ overflow: "hidden" }}
+                  >
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+                      {[
+                        { label: "Company", value: company, onChange: setCompany, placeholder: "e.g. Equifax" },
+                        { label: "State", value: state, onChange: setState, placeholder: "e.g. CA" },
+                      ].map(({ label, value, onChange, placeholder }) => (
+                        <div key={label}>
+                          <label style={{ display: "block", fontSize: 10, color: "#475569", marginBottom: 4 }}>
+                            {label}
+                          </label>
+                          <input
+                            type="text"
+                            value={value}
+                            onChange={(e) => onChange(e.target.value)}
+                            placeholder={placeholder}
+                            style={{
+                              width: "100%",
+                              borderRadius: 8,
+                              border: "1px solid rgba(255,255,255,0.08)",
+                              background: "rgba(3,7,18,0.6)",
+                              padding: "7px 10px",
+                              fontSize: 12,
+                              color: "#e2e8f0",
+                              outline: "none",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Analyze button */}
+            <div style={{ display: "flex", gap: 10 }}>
+              <motion.button
+                whileHover={{ scale: narrative.trim() ? 1.02 : 1 }}
+                whileTap={{ scale: narrative.trim() ? 0.97 : 1 }}
+                onClick={handleSubmit}
+                disabled={!narrative.trim() || isRunning}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "9px 22px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: narrative.trim() && !isRunning ? "#10b981" : "rgba(16,185,129,0.3)",
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: narrative.trim() && !isRunning ? "pointer" : "not-allowed",
+                  boxShadow: narrative.trim() ? "0 4px 20px rgba(16,185,129,0.25)" : "none",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                {isRunning ? (
+                  <Loader2 style={{ width: 15, height: 15 }} className="animate-spin" />
+                ) : (
+                  <Play style={{ width: 15, height: 15 }} />
+                )}
+                {isRunning ? "Analyzing…" : "Analyze Complaint"}
+              </motion.button>
+            </div>
           </div>
         )}
-
-        {/* Narrative textarea */}
-        <div>
-          <label className="block text-xs text-slate-400 mb-1.5">Complaint narrative *</label>
-          <textarea
-            value={narrative}
-            onChange={(e) => setNarrative(e.target.value)}
-            placeholder="Paste the consumer complaint narrative here..."
-            rows={7}
-            className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none font-mono"
-          />
-          <p className="text-[11px] text-slate-600 mt-1">{narrative.length} chars</p>
-        </div>
-
-        {/* Optional metadata */}
-        <div>
-          <button
-            onClick={() => setMetaOpen(!metaOpen)}
-            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-          >
-            {metaOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            Optional metadata (company, state)
-          </button>
-          <AnimatePresence>
-            {metaOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="grid grid-cols-2 gap-4 mt-3">
-                  <div>
-                    <label className="block text-xs text-slate-400 mb-1">Company</label>
-                    <input
-                      type="text"
-                      value={company}
-                      onChange={(e) => setCompany(e.target.value)}
-                      placeholder="e.g. Equifax"
-                      className="w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-400 mb-1">State</label>
-                    <input
-                      type="text"
-                      value={state}
-                      onChange={(e) => setState(e.target.value)}
-                      placeholder="e.g. CA"
-                      className="w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-                    />
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Analyze button */}
-        <div className="flex items-center gap-3">
-          <motion.button
-            whileHover={{ scale: narrative.trim() ? 1.02 : 1 }}
-            whileTap={{ scale: narrative.trim() ? 0.98 : 1 }}
-            onClick={handleAnalyze}
-            disabled={!narrative.trim() || phase === "running"}
-            className="flex items-center gap-2 rounded-xl bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            {phase === "running" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Play className="h-4 w-4" />
-            )}
-            {phase === "running" ? "Analyzing..." : "Analyze"}
-          </motion.button>
-
-          {phase !== "idle" && (
-            <motion.button
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              onClick={() => { resetState(); setPhase("idle"); setNarrative(""); setSelectedSample(""); }}
-              className="flex items-center gap-1.5 rounded-lg border border-white/10 px-4 py-2.5 text-xs text-slate-400 hover:text-white hover:border-white/20 transition-colors"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Reset
-            </motion.button>
-          )}
-        </div>
       </div>
 
-      {/* Error banner */}
+      {/* ── Error banner ──────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {error && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="flex items-start gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4"
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              borderRadius: 12,
+              border: "1px solid rgba(244,63,94,0.3)",
+              background: "rgba(244,63,94,0.08)",
+              padding: "14px 16px",
+            }}
           >
-            <AlertTriangle className="h-4 w-4 text-rose-400 mt-0.5 shrink-0" />
+            <AlertTriangle style={{ width: 16, height: 16, color: "#f43f5e", flexShrink: 0, marginTop: 1 }} />
             <div>
-              <p className="text-sm font-semibold text-rose-300">Analysis Failed</p>
-              <p className="text-xs text-rose-400 mt-0.5">{error}</p>
-              <p className="text-xs text-slate-500 mt-1">
-                Make sure the backend is running: <code className="font-mono">cd api && uvicorn main:app --reload --port 8000</code>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "#fda4af", margin: 0 }}>Analysis Failed</p>
+              <p style={{ fontSize: 11, color: "#f43f5e", marginTop: 2 }}>{error}</p>
+              <p style={{ fontSize: 10, color: "#475569", marginTop: 4 }}>
+                Make sure the backend is running:{" "}
+                <code style={{ fontFamily: "monospace" }}>cd api && uvicorn main:app --reload --port 8000</code>
               </p>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Agent flow diagram */}
+      {/* ── SECTION B: Risk Dashboard ─────────────────────────────────────────── */}
       <AnimatePresence>
-        {phase !== "idle" && (
+        {classification && (
           <motion.div
+            key="risk-dashboard"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            className="space-y-3"
           >
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-300">Agent Pipeline</h2>
-              {allComplete && (
-                <motion.span
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-xs text-emerald-400 font-medium"
-                >
-                  ✓ All agents complete
-                </motion.span>
-              )}
-            </div>
-            <AgentFlowDiagram agentStates={agentStates} />
-
-            {/* Timing row */}
-            <div className="flex flex-wrap gap-3">
-              {AGENTS.map((agent) => {
-                const s = agentStates[agent];
-                if (!s || s.status === "idle") return null;
-                return (
-                  <div key={agent} className="flex items-center gap-1.5 text-xs text-slate-500">
-                    <span className="capitalize">{agent.replace(/_/g, " ")}</span>
-                    {s.elapsed && (
-                      <span className="font-mono text-slate-400">{s.elapsed}s</span>
-                    )}
-                    {s.status === "running" && (
-                      <Loader2 className="h-3 w-3 animate-spin text-sky-400" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <p style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Risk Assessment
+            </p>
+            <RiskDashboard
+              classification={classification}
+              routing={routing}
+              qualityCheck={qualityCheck}
+            />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Results */}
-      <div ref={resultsRef} className="space-y-4">
+      {/* ── SECTION C: Pipeline Visualization ────────────────────────────────── */}
+      <AnimatePresence>
+        {hasStarted && (
+          <motion.div
+            key="pipeline"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                Agent Pipeline
+              </p>
+              {phase === "complete" && (
+                <motion.span
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}
+                >
+                  ✓ Complete {totalTime ? `in ${totalTime}s` : ""}
+                </motion.span>
+              )}
+            </div>
+            <AgentFlowDiagram agentStates={agentStates} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── SECTION D: Reasoning Log ──────────────────────────────────────────── */}
+      <AnimatePresence>
+        {log.length > 0 && (
+          <motion.div
+            key="log"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <ReasoningLog entries={log} totalTime={totalTime} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── SECTION E: Detailed Results ───────────────────────────────────────── */}
+      <div ref={resultsRef} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {hasResults && (
+          <p style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Detailed Results
+          </p>
+        )}
+
         <AnimatePresence>
           {classification && (
             <AgentCardWrapper
@@ -349,12 +506,34 @@ export default function AnalyzePage() {
               icon={Tag}
               delay={0}
               badge={
-                <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${
-                  classification.severity === "critical" ? "bg-rose-500/20 text-rose-300" :
-                  classification.severity === "high" ? "bg-orange-500/20 text-orange-300" :
-                  classification.severity === "medium" ? "bg-amber-500/20 text-amber-300" :
-                  "bg-emerald-500/20 text-emerald-300"
-                }`}>{classification.severity}</span>
+                <span
+                  style={{
+                    marginLeft: 8,
+                    borderRadius: 9999,
+                    padding: "2px 8px",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: "capitalize",
+                    background:
+                      classification.severity === "critical"
+                        ? "rgba(244,63,94,0.2)"
+                        : classification.severity === "high"
+                        ? "rgba(249,115,22,0.2)"
+                        : classification.severity === "medium"
+                        ? "rgba(245,158,11,0.2)"
+                        : "rgba(16,185,129,0.2)",
+                    color:
+                      classification.severity === "critical"
+                        ? "#fb7185"
+                        : classification.severity === "high"
+                        ? "#fb923c"
+                        : classification.severity === "medium"
+                        ? "#fbbf24"
+                        : "#6ee7b7",
+                  }}
+                >
+                  {classification.severity}
+                </span>
               }
             >
               <ClassifierCard data={classification} />
@@ -362,7 +541,7 @@ export default function AnalyzePage() {
           )}
 
           {causalAnalysis && (
-            <AgentCardWrapper key="causal" title="Causal Analysis" icon={GitBranch} delay={0.05}>
+            <AgentCardWrapper key="causal" title="Causal Analysis" icon={GitBranch} delay={0.04}>
               <CausalCard data={causalAnalysis} />
             </AgentCardWrapper>
           )}
@@ -372,14 +551,35 @@ export default function AnalyzePage() {
               key="routing"
               title="Routing"
               icon={Route}
-              delay={0.1}
+              delay={0.08}
               badge={
-                <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                  routing.priority_level === "P1" ? "bg-rose-500/20 text-rose-300" :
-                  routing.priority_level === "P2" ? "bg-orange-500/20 text-orange-300" :
-                  routing.priority_level === "P3" ? "bg-amber-500/20 text-amber-300" :
-                  "bg-slate-700 text-slate-300"
-                }`}>{routing.priority_level}</span>
+                <span
+                  style={{
+                    marginLeft: 8,
+                    borderRadius: 9999,
+                    padding: "2px 8px",
+                    fontSize: 10,
+                    fontWeight: 800,
+                    background:
+                      routing.priority_level === "P1"
+                        ? "rgba(244,63,94,0.2)"
+                        : routing.priority_level === "P2"
+                        ? "rgba(249,115,22,0.2)"
+                        : routing.priority_level === "P3"
+                        ? "rgba(245,158,11,0.2)"
+                        : "rgba(100,116,139,0.2)",
+                    color:
+                      routing.priority_level === "P1"
+                        ? "#fb7185"
+                        : routing.priority_level === "P2"
+                        ? "#fb923c"
+                        : routing.priority_level === "P3"
+                        ? "#fbbf24"
+                        : "#94a3b8",
+                  }}
+                >
+                  {routing.priority_level}
+                </span>
               }
             >
               <RouterCard data={routing} />
@@ -387,7 +587,7 @@ export default function AnalyzePage() {
           )}
 
           {resolution && (
-            <AgentCardWrapper key="resolution" title="Resolution Plan" icon={FileText} delay={0.15}>
+            <AgentCardWrapper key="resolution" title="Resolution Plan" icon={FileText} delay={0.12}>
               <ResolutionCard data={resolution} />
             </AgentCardWrapper>
           )}
@@ -397,8 +597,12 @@ export default function AnalyzePage() {
               key="quality"
               title="Quality Check"
               icon={ShieldCheck}
-              delay={0.2}
-              badge={<span className="ml-2"><QualityBadge flag={qualityCheck.quality_flag} /></span>}
+              delay={0.16}
+              badge={
+                <span style={{ marginLeft: 8 }}>
+                  <QualityBadge flag={qualityCheck.quality_flag} />
+                </span>
+              }
             >
               <QualityCheckCard data={qualityCheck} />
             </AgentCardWrapper>

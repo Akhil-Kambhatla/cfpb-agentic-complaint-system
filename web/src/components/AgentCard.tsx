@@ -195,6 +195,20 @@ export function ResolutionCard({ data }: { data: ResolutionOutput }) {
         </ol>
       </div>
 
+      {data.preventive_recommendations && data.preventive_recommendations.length > 0 && (
+        <div>
+          <p className="text-[10px] text-slate-500 mb-2">Preventive Recommendations</p>
+          <ul className="space-y-1.5">
+            {data.preventive_recommendations.map((rec, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="text-emerald-500 mt-0.5 text-xs">•</span>
+                <p className="text-xs text-slate-300">{rec}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <ResolutionLetter letter={data.customer_response_letter} />
     </div>
   );

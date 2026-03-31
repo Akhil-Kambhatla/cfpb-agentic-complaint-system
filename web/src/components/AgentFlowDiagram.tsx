@@ -11,204 +11,204 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
+  Inbox,
 } from "lucide-react";
-import type { AgentState } from "@/types";
+import type { AgentState, RoutingOutput, CausalAnalysisOutput } from "@/types";
 
-// ─── Layout constants ─────────────────────────────────────────────────────────
-// The SVG uses viewBox="0 0 VW VH" with preserveAspectRatio="none" so that
-// SVG coordinates map proportionally to container pixels. HTML nodes are
-// positioned as percentages derived from the same coordinate space, ensuring
-// the bezier path endpoints always land exactly at each node's center.
+// ─── Layout (SVG coords) ──────────────────────────────────────────────────────
+const VW = 1000;
+const VH = 640;
 
-const VW = 1000; // SVG viewBox width
-const VH = 500; // SVG viewBox height
-const NW = 156; // node width  (SVG units → scales with container)
-const NH = 72; // node height (SVG units)
+// Standard node dims
+const NW = 160;
+const NH = 70;
 
-// Node centers in SVG space
-// NH/2 = 36 → edges connect at: top = cy−36, bottom = cy+36
-const NODE_DEFS = [
-  // classifier   bottom = 86
-  { id: "classifier",     label: "Classifier",    desc: "Product & severity", Icon: Tag,         cx: 500, cy: 50,  enterDelay: 0    },
-  // causal_analyst  top = 169,  bottom = 241
-  { id: "causal_analyst", label: "Causal Analyst",desc: "Root cause & DAG",  Icon: GitBranch,   cx: 190, cy: 205, enterDelay: 0.07 },
-  // router          top = 169,  bottom = 241
-  { id: "router",         label: "Router",        desc: "Team & priority",   Icon: Route,       cx: 810, cy: 205, enterDelay: 0.07 },
-  // resolution      top = 314,  bottom = 386
-  { id: "resolution",     label: "Resolution",    desc: "Remediation plan",  Icon: FileText,    cx: 500, cy: 350, enterDelay: 0.14 },
-  // quality_check   top = 417,  bottom = 489
-  { id: "quality_check",  label: "Quality Check", desc: "Confidence & QA",   Icon: ShieldCheck, cx: 500, cy: 453, enterDelay: 0.21 },
-] as const;
+// Taller node dims for router/causal
+const NW_ROUTER = 230;
+const NH_ROUTER = 170;
+const NW_CAUSAL = 190;
+const NH_CAUSAL = 100;
+const NW_INPUT = 180;
+const NH_INPUT = 52;
 
-type NodeId = (typeof NODE_DEFS)[number]["id"];
-type NodeDef = (typeof NODE_DEFS)[number];
+// Node centers
+const NODES = {
+  complaint_input: { cx: 500, cy: 44, nw: NW_INPUT, nh: NH_INPUT },
+  classifier:      { cx: 500, cy: 148, nw: NW,       nh: NH },
+  causal_analyst:  { cx: 200, cy: 320, nw: NW_CAUSAL, nh: NH_CAUSAL },
+  router:          { cx: 800, cy: 332, nw: NW_ROUTER, nh: NH_ROUTER },
+  resolution:      { cx: 500, cy: 480, nw: NW,        nh: NH },
+  quality_check:   { cx: 500, cy: 590, nw: NW,        nh: NH },
+} as const;
 
+// Edge bezier paths (connect bottom of source to top of target)
 const EDGE_DEFS = [
   {
+    id: "e0",
+    source: "complaint_input" as const,
+    target: "classifier" as const,
+    d: "M 500 70 C 500 96 500 108 500 113",
+  },
+  {
     id: "e1",
-    source: "classifier"     as NodeId,
-    target: "causal_analyst" as NodeId,
-    d: "M 500 86 C 500 135 190 128 190 169",
+    source: "classifier" as const,
+    target: "causal_analyst" as const,
+    d: "M 500 183 C 500 230 200 255 200 270",
   },
   {
     id: "e2",
-    source: "classifier" as NodeId,
-    target: "router"     as NodeId,
-    d: "M 500 86 C 500 135 810 128 810 169",
+    source: "classifier" as const,
+    target: "router" as const,
+    d: "M 500 183 C 500 230 800 255 800 247",
   },
   {
     id: "e3",
-    source: "causal_analyst" as NodeId,
-    target: "resolution"     as NodeId,
-    d: "M 190 241 C 190 292 500 264 500 314",
+    source: "causal_analyst" as const,
+    target: "resolution" as const,
+    d: "M 200 370 C 200 425 500 445 500 445",
   },
   {
     id: "e4",
-    source: "router"     as NodeId,
-    target: "resolution" as NodeId,
-    d: "M 810 241 C 810 292 500 264 500 314",
+    source: "router" as const,
+    target: "resolution" as const,
+    d: "M 800 417 C 800 445 500 445 500 445",
   },
   {
     id: "e5",
-    source: "resolution"    as NodeId,
-    target: "quality_check" as NodeId,
-    d: "M 500 386 C 500 402 500 402 500 417",
+    source: "resolution" as const,
+    target: "quality_check" as const,
+    d: "M 500 515 C 500 536 500 554 500 555",
   },
 ] as const;
 
-// ─── Node colors ──────────────────────────────────────────────────────────────
-const NODE_COLORS: Record<
-  string,
-  { border: string; bg: string; text: string; iconBg: string; iconColor: string }
-> = {
-  idle:     { border: "#334155", bg: "rgba(30,41,59,0.7)",     text: "#94a3b8", iconBg: "rgba(51,65,85,0.6)",    iconColor: "#64748b" },
-  running:  { border: "#0ea5e9", bg: "rgba(14,165,233,0.09)",  text: "#7dd3fc", iconBg: "rgba(14,165,233,0.18)", iconColor: "#38bdf8" },
-  complete: { border: "#10b981", bg: "rgba(16,185,129,0.08)",  text: "#6ee7b7", iconBg: "rgba(16,185,129,0.18)", iconColor: "#34d399" },
-  error:    { border: "#f43f5e", bg: "rgba(244,63,94,0.08)",   text: "#fda4af", iconBg: "rgba(244,63,94,0.18)",  iconColor: "#fb7185" },
+type EdgeId = (typeof EDGE_DEFS)[number]["id"];
+type NodeKey = keyof typeof NODES;
+
+// Node colors by status
+const COLORS = {
+  idle:     { border: "#1e293b", bg: "rgba(15,23,42,0.8)",    text: "#475569", iconBg: "rgba(30,41,59,0.6)",    icon: "#334155" },
+  running:  { border: "#0ea5e9", bg: "rgba(14,165,233,0.07)", text: "#7dd3fc", iconBg: "rgba(14,165,233,0.15)", icon: "#38bdf8" },
+  complete: { border: "#10b981", bg: "rgba(16,185,129,0.06)", text: "#6ee7b7", iconBg: "rgba(16,185,129,0.15)", icon: "#34d399" },
+  error:    { border: "#f43f5e", bg: "rgba(244,63,94,0.07)",  text: "#fda4af", iconBg: "rgba(244,63,94,0.15)",  icon: "#fb7185" },
 };
 
-// ─── Main component ───────────────────────────────────────────────────────────
+const TEAMS = [
+  "compliance",
+  "billing_disputes",
+  "fraud",
+  "customer_service",
+  "legal",
+  "executive_escalation",
+];
 
+// ─── Props ────────────────────────────────────────────────────────────────────
 interface Props {
   agentStates: Record<string, AgentState>;
 }
 
 export default function AgentFlowDiagram({ agentStates }: Props) {
-  // Keying particles by edge id: a non-zero value means "play this particle".
-  // Changing the key remounts the SVG <animateMotion> element, replaying it.
   const [particleKeys, setParticleKeys] = useState<Record<string, number>>({});
 
-  // Reset particles when all agents return to idle (new analysis starting)
+  // Reset particles when agents go idle
   useEffect(() => {
     const allIdle = Object.values(agentStates).every((s) => s.status === "idle");
     if (allIdle) setParticleKeys({});
   }, [agentStates]);
 
-  // Fire a particle along every edge whose source just completed
+  // Fire particles when a source node completes
   useEffect(() => {
     for (const edge of EDGE_DEFS) {
       if (agentStates[edge.source]?.status === "complete") {
         setParticleKeys((prev) => {
-          if (prev[edge.id]) return prev; // already fired for this run
+          if (prev[edge.id]) return prev;
           return { ...prev, [edge.id]: Date.now() };
         });
       }
     }
   }, [agentStates]);
 
-  const allComplete = NODE_DEFS.every(
-    (n) => agentStates[n.id]?.status === "complete"
+  const allComplete = ["classifier", "causal_analyst", "router", "resolution", "quality_check"].every(
+    (n) => agentStates[n]?.status === "complete"
   );
 
   return (
     <div
-      className="relative w-full rounded-xl border border-white/10 bg-slate-900/60 overflow-hidden"
-      style={{ height: "460px" }}
+      style={{
+        position: "relative",
+        width: "100%",
+        height: "620px",
+        borderRadius: 16,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(3,7,18,0.6)",
+        overflow: "hidden",
+      }}
     >
-      {/* ── SVG: bezier edges + traveling particles ─────────────────────────── */}
+      {/* SVG edges + particles */}
       <svg
         viewBox={`0 0 ${VW} ${VH}`}
         preserveAspectRatio="none"
-        className="absolute inset-0 w-full h-full pointer-events-none"
-        aria-hidden="true"
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}
+        aria-hidden
       >
         <defs>
-          <filter id="afg-particle-glow" x="-80%" y="-80%" width="260%" height="260%">
+          <filter id="pg" x="-80%" y="-80%" width="260%" height="260%">
             <feGaussianBlur stdDeviation="5" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
-          <filter id="afg-edge-halo" x="-50%" y="-50%" width="200%" height="200%">
+          <filter id="eh" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
         </defs>
 
-        {/* Edges */}
         {EDGE_DEFS.map((edge) => {
           const srcStatus = agentStates[edge.source]?.status ?? "idle";
           const tgtStatus = agentStates[edge.target]?.status ?? "idle";
-
           const isActive = tgtStatus === "running";
-          const isDone   = srcStatus === "complete" && tgtStatus === "complete";
+          const isDone = srcStatus === "complete" && tgtStatus === "complete";
           const showHalo = isActive || isDone || allComplete;
-
-          const glowColor  = allComplete ? "#10b981" : isActive ? "#0ea5e9" : "#10b981";
-          const strokeColor = allComplete
-            ? "#10b981"
-            : isDone   ? "#10b981"
-            : isActive ? "#0ea5e9"
-            : "#1e293b";
+          const glowColor = allComplete ? "#10b981" : isActive ? "#0ea5e9" : "#10b981";
+          const strokeColor = allComplete ? "#10b981" : isDone ? "#10b981" : isActive ? "#0ea5e9" : "#1e293b";
 
           return (
             <g key={edge.id}>
-              {/* Soft ambient halo behind active edges */}
               {showHalo && (
                 <path
                   d={edge.d}
                   fill="none"
                   stroke={glowColor}
                   strokeWidth={10}
-                  strokeOpacity={0.13}
+                  strokeOpacity={0.12}
                   strokeLinecap="round"
-                  filter="url(#afg-edge-halo)"
+                  filter="url(#eh)"
                 />
               )}
-              {/* Main edge path — also referenced by <mpath> for animateMotion */}
               <path
-                id={`afg-path-${edge.id}`}
+                id={`p-${edge.id}`}
                 d={edge.d}
                 fill="none"
                 stroke={strokeColor}
                 strokeWidth={1.8}
                 strokeLinecap="round"
-                style={{ transition: "stroke 0.6s ease" }}
+                style={{ transition: "stroke 0.55s ease" }}
               />
             </g>
           );
         })}
 
-        {/* Traveling particles — remount via key to replay animateMotion */}
         {EDGE_DEFS.map((edge) => {
-          const pKey = particleKeys[edge.id];
-          if (!pKey) return null;
+          const pk = particleKeys[edge.id as EdgeId];
+          if (!pk) return null;
           return (
-            <g key={`particle-${edge.id}-${pKey}`}>
-              {/* Outer glow halo */}
-              <circle r="10" fill="#0ea5e9" opacity="0.2" filter="url(#afg-particle-glow)">
-                <animateMotion dur="0.9s" fill="freeze" repeatCount="1">
-                  <mpath href={`#afg-path-${edge.id}`} />
+            <g key={`pt-${edge.id}-${pk}`}>
+              <circle r="10" fill="#0ea5e9" opacity="0.18" filter="url(#pg)">
+                <animateMotion dur="0.85s" fill="freeze" repeatCount="1">
+                  <mpath href={`#p-${edge.id}`} />
                 </animateMotion>
               </circle>
-              {/* Core bright dot */}
-              <circle r="4" fill="#bae6fd">
-                <animateMotion dur="0.9s" fill="freeze" repeatCount="1">
-                  <mpath href={`#afg-path-${edge.id}`} />
+              <circle r="3.5" fill="#bae6fd">
+                <animateMotion dur="0.85s" fill="freeze" repeatCount="1">
+                  <mpath href={`#p-${edge.id}`} />
                 </animateMotion>
               </circle>
             </g>
@@ -216,155 +216,383 @@ export default function AgentFlowDiagram({ agentStates }: Props) {
         })}
       </svg>
 
-      {/* ── HTML node overlays ────────────────────────────────────────────────── */}
-      {NODE_DEFS.map((def) => {
-        const state = agentStates[def.id] ?? { status: "idle" as const };
-        return <AgentNodeBox key={def.id} def={def} state={state} />;
-      })}
+      {/* Complaint Input node */}
+      <ComplaintInputNode />
+
+      {/* Standard nodes */}
+      <StandardNode
+        nodeKey="classifier"
+        label="Classifier"
+        subLabel="Product & severity"
+        Icon={Tag}
+        state={agentStates["classifier"] ?? { status: "idle" }}
+        enterDelay={0}
+      />
+
+      {/* Causal Analyst — taller, shows chain preview */}
+      <CausalNode state={agentStates["causal_analyst"] ?? { status: "idle" }} />
+
+      {/* Router — shows team pills */}
+      <RouterNode state={agentStates["router"] ?? { status: "idle" }} />
+
+      <StandardNode
+        nodeKey="resolution"
+        label="Resolution"
+        subLabel="Remediation plan"
+        Icon={FileText}
+        state={agentStates["resolution"] ?? { status: "idle" }}
+        enterDelay={0.18}
+      />
+      <StandardNode
+        nodeKey="quality_check"
+        label="Quality Check"
+        subLabel="Confidence & QA"
+        Icon={ShieldCheck}
+        state={agentStates["quality_check"] ?? { status: "idle" }}
+        enterDelay={0.22}
+      />
     </div>
   );
 }
 
-// ─── Node box component ───────────────────────────────────────────────────────
+// ─── Complaint Input Node ─────────────────────────────────────────────────────
 
-function AgentNodeBox({ def, state }: { def: NodeDef; state: AgentState }) {
-  const { Icon, label, desc, cx, cy, enterDelay } = def;
-  const { status, elapsed } = state;
-  const c = NODE_COLORS[status] ?? NODE_COLORS.idle;
-
-  // Map SVG coordinate space to container-relative percentages
-  const leftPct   = ((cx - NW / 2) / VW) * 100;
-  const topPct    = ((cy - NH / 2) / VH) * 100;
-  const widthPct  = (NW / VW) * 100;
-  const heightPct = (NH / VH) * 100;
-
-  const statusLabel =
-    status === "running"               ? "Processing…"
-    : status === "complete" && elapsed != null ? `Done · ${elapsed}s`
-    : status === "complete"            ? "Done"
-    : status === "error"               ? "Error"
-    : desc;
+function ComplaintInputNode() {
+  const n = NODES.complaint_input;
+  const lp = ((n.cx - n.nw / 2) / VW) * 100;
+  const tp = ((n.cy - n.nh / 2) / VH) * 100;
+  const wp = (n.nw / VW) * 100;
+  const hp = (n.nh / VH) * 100;
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.8 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.38, delay: enterDelay, ease: [0.22, 1, 0.36, 1] }}
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
       style={{
-        position:      "absolute",
-        left:          `${leftPct}%`,
-        top:           `${topPct}%`,
-        width:         `${widthPct}%`,
-        height:        `${heightPct}%`,
-        border:        `1.5px solid ${c.border}`,
-        borderRadius:  11,
-        background:    c.bg,
-        backdropFilter:"blur(6px)",
-        overflow:      "hidden",
-        transition:    "border-color 0.5s ease, background 0.5s ease",
+        position: "absolute",
+        left: `${lp}%`,
+        top: `${tp}%`,
+        width: `${wp}%`,
+        height: `${hp}%`,
+        borderRadius: 10,
+        border: "1px solid rgba(14,165,233,0.4)",
+        background: "rgba(14,165,233,0.06)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
       }}
     >
-      {/* Pulse ring when running */}
-      {status === "running" && (
-        <motion.div
-          style={{
-            position:    "absolute",
-            inset:       -1,
-            borderRadius: 11,
-            border:      "2px solid #38bdf8",
-            pointerEvents:"none",
-          }}
-          animate={{ opacity: [0.2, 0.85, 0.2], scale: [1, 1.045, 1] }}
-          transition={{ duration: 1.35, repeat: Infinity, ease: "easeInOut" }}
-        />
-      )}
+      <Inbox style={{ width: 12, height: 12, color: "#38bdf8" }} />
+      <span style={{ fontSize: 11, fontWeight: 600, color: "#7dd3fc" }}>Complaint Input</span>
+    </motion.div>
+  );
+}
 
-      {/* Radial completion glow */}
-      {status === "complete" && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: [0, 0.4, 0.14] }}
-          transition={{ duration: 0.85 }}
-          style={{
-            position:     "absolute",
-            inset:        0,
-            borderRadius: 11,
-            background:   "radial-gradient(ellipse at 50% 60%, rgba(16,185,129,0.28) 0%, transparent 70%)",
-            pointerEvents:"none",
-          }}
-        />
-      )}
+// ─── Standard Node ────────────────────────────────────────────────────────────
 
-      {/* Content row */}
-      <div
-        style={{
-          display:     "flex",
-          alignItems:  "center",
-          height:      "100%",
-          padding:     "0 10px",
-          gap:         8,
-        }}
-      >
-        {/* Icon bubble */}
-        <motion.div
-          animate={status === "running" ? { scale: [1, 1.12, 1] } : { scale: 1 }}
-          transition={{ duration: 0.8, repeat: status === "running" ? Infinity : 0 }}
-          style={{
-            width:          28,
-            height:         28,
-            borderRadius:   7,
-            flexShrink:     0,
-            display:        "flex",
-            alignItems:     "center",
-            justifyContent: "center",
-            background:     c.iconBg,
-          }}
-        >
-          {status === "running" ? (
-            <Loader2
-              style={{ width: 13, height: 13, color: c.iconColor }}
-              className="animate-spin"
-            />
-          ) : status === "complete" ? (
-            <CheckCircle2 style={{ width: 13, height: 13, color: c.iconColor }} />
-          ) : status === "error" ? (
-            <XCircle style={{ width: 13, height: 13, color: c.iconColor }} />
-          ) : (
-            <Icon style={{ width: 13, height: 13, color: c.iconColor }} />
-          )}
-        </motion.div>
+interface StandardNodeProps {
+  nodeKey: NodeKey;
+  label: string;
+  subLabel: string;
+  Icon: React.ElementType;
+  state: AgentState;
+  enterDelay: number;
+}
 
-        {/* Label + status */}
+function StandardNode({ nodeKey, label, subLabel, Icon, state, enterDelay }: StandardNodeProps) {
+  const n = NODES[nodeKey];
+  const lp = ((n.cx - n.nw / 2) / VW) * 100;
+  const tp = ((n.cy - n.nh / 2) / VH) * 100;
+  const wp = (n.nw / VW) * 100;
+  const hp = (n.nh / VH) * 100;
+  const c = COLORS[state.status] ?? COLORS.idle;
+
+  const statusText =
+    state.status === "running"
+      ? "Processing…"
+      : state.status === "complete" && state.elapsed != null
+      ? `Done · ${state.elapsed}s`
+      : state.status === "complete"
+      ? "Done"
+      : state.status === "error"
+      ? "Error"
+      : subLabel;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.85 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.36, delay: enterDelay, ease: [0.22, 1, 0.36, 1] }}
+      style={{
+        position: "absolute",
+        left: `${lp}%`,
+        top: `${tp}%`,
+        width: `${wp}%`,
+        height: `${hp}%`,
+        borderRadius: 11,
+        border: `1.5px solid ${c.border}`,
+        background: c.bg,
+        backdropFilter: "blur(8px)",
+        overflow: "hidden",
+        transition: "border-color 0.5s ease, background 0.5s ease",
+      }}
+    >
+      {state.status === "running" && <PulseRing />}
+      {state.status === "complete" && <CompletionGlow />}
+
+      <div style={{ display: "flex", alignItems: "center", height: "100%", padding: "0 10px", gap: 8 }}>
+        <IconBubble Icon={Icon} status={state.status} c={c} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p
-            style={{
-              fontSize:      11,
-              fontWeight:    600,
-              color:         c.text,
-              whiteSpace:    "nowrap",
-              overflow:      "hidden",
-              textOverflow:  "ellipsis",
-              lineHeight:    1.35,
-              transition:    "color 0.45s ease",
-            }}
-          >
+          <p style={{ fontSize: 11, fontWeight: 600, color: c.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.35, transition: "color 0.45s ease" }}>
             {label}
           </p>
-          <p
-            style={{
-              fontSize:      9,
-              color:         "#475569",
-              whiteSpace:    "nowrap",
-              overflow:      "hidden",
-              textOverflow:  "ellipsis",
-              marginTop:     1,
-              lineHeight:    1.3,
-            }}
-          >
-            {statusLabel}
+          <p style={{ fontSize: 9, color: "#475569", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1, lineHeight: 1.3 }}>
+            {statusText}
           </p>
         </div>
       </div>
+    </motion.div>
+  );
+}
+
+// ─── Causal Analyst Node ──────────────────────────────────────────────────────
+
+function CausalNode({ state }: { state: AgentState }) {
+  const n = NODES.causal_analyst;
+  const lp = ((n.cx - n.nw / 2) / VW) * 100;
+  const tp = ((n.cy - n.nh / 2) / VH) * 100;
+  const wp = (n.nw / VW) * 100;
+  const hp = (n.nh / VH) * 100;
+  const c = COLORS[state.status] ?? COLORS.idle;
+
+  const result = state.result as CausalAnalysisOutput | undefined;
+  const chain = result?.causal_chain;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.85 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.36, delay: 0.06, ease: [0.22, 1, 0.36, 1] }}
+      style={{
+        position: "absolute",
+        left: `${lp}%`,
+        top: `${tp}%`,
+        width: `${wp}%`,
+        height: `${hp}%`,
+        borderRadius: 11,
+        border: `1.5px solid ${c.border}`,
+        background: c.bg,
+        backdropFilter: "blur(8px)",
+        overflow: "hidden",
+        transition: "border-color 0.5s ease, background 0.5s ease",
+        padding: "8px 10px",
+        boxSizing: "border-box",
+      }}
+    >
+      {state.status === "running" && <PulseRing />}
+      {state.status === "complete" && <CompletionGlow />}
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+        <IconBubble Icon={GitBranch} status={state.status} c={c} size={24} />
+        <div>
+          <p style={{ fontSize: 10, fontWeight: 600, color: c.text, lineHeight: 1.3 }}>Causal Analyst</p>
+          <p style={{ fontSize: 8, color: "#475569", lineHeight: 1.2 }}>
+            {state.status === "running" ? "Building causal graph…" : state.status === "complete" ? `Done · ${state.elapsed ?? ""}s` : "Root cause & DAG"}
+          </p>
+        </div>
+      </div>
+
+      {/* Mini causal chain preview when complete */}
+      {state.status === "complete" && chain && chain.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          {chain.slice(0, 3).map((edge, i) => (
+            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              <div style={{
+                fontSize: 7,
+                color: i === 0 ? "#f59e0b" : "#94a3b8",
+                background: i === 0 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.04)",
+                borderRadius: 4,
+                padding: "2px 5px",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}>
+                {i === 0 ? edge.cause : edge.effect}
+              </div>
+              {i < Math.min(chain.length - 1, 2) && (
+                <div style={{ fontSize: 7, color: "#334155", textAlign: "center", lineHeight: 1 }}>↓</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ─── Router Node ──────────────────────────────────────────────────────────────
+
+function RouterNode({ state }: { state: AgentState }) {
+  const n = NODES.router;
+  const lp = ((n.cx - n.nw / 2) / VW) * 100;
+  const tp = ((n.cy - n.nh / 2) / VH) * 100;
+  const wp = (n.nw / VW) * 100;
+  const hp = (n.nh / VH) * 100;
+  const c = COLORS[state.status] ?? COLORS.idle;
+
+  const result = state.result as RoutingOutput | undefined;
+  const selectedTeam = result?.assigned_team ?? "";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.85 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.36, delay: 0.06, ease: [0.22, 1, 0.36, 1] }}
+      style={{
+        position: "absolute",
+        left: `${lp}%`,
+        top: `${tp}%`,
+        width: `${wp}%`,
+        height: `${hp}%`,
+        borderRadius: 11,
+        border: `1.5px solid ${c.border}`,
+        background: c.bg,
+        backdropFilter: "blur(8px)",
+        overflow: "hidden",
+        transition: "border-color 0.5s ease, background 0.5s ease",
+        padding: "8px 10px",
+        boxSizing: "border-box",
+      }}
+    >
+      {state.status === "running" && <PulseRing />}
+      {state.status === "complete" && <CompletionGlow />}
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        <IconBubble Icon={Route} status={state.status} c={c} size={24} />
+        <div>
+          <p style={{ fontSize: 10, fontWeight: 600, color: c.text, lineHeight: 1.3 }}>Router</p>
+          <p style={{ fontSize: 8, color: "#475569", lineHeight: 1.2 }}>
+            {state.status === "running" ? "Assigning team…" : state.status === "complete" ? `Done · ${state.elapsed ?? ""}s` : "Team & priority"}
+          </p>
+        </div>
+        {result?.priority_level && (
+          <span style={{
+            marginLeft: "auto",
+            fontSize: 8,
+            fontWeight: 700,
+            padding: "2px 5px",
+            borderRadius: 4,
+            background: result.priority_level === "P1" ? "rgba(244,63,94,0.2)" : result.priority_level === "P2" ? "rgba(249,115,22,0.2)" : "rgba(245,158,11,0.2)",
+            color: result.priority_level === "P1" ? "#fb7185" : result.priority_level === "P2" ? "#fb923c" : "#fbbf24",
+          }}>
+            {result.priority_level}
+          </span>
+        )}
+      </div>
+
+      {/* Team pills */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {TEAMS.map((team) => {
+          const isSelected = selectedTeam === team;
+          const isComplete = state.status === "complete";
+          return (
+            <div
+              key={team}
+              style={{
+                fontSize: 7.5,
+                fontWeight: isSelected && isComplete ? 600 : 400,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: isSelected && isComplete ? "rgba(16,185,129,0.18)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${isSelected && isComplete ? "rgba(16,185,129,0.35)" : "rgba(255,255,255,0.05)"}`,
+                color: isSelected && isComplete ? "#6ee7b7" : "#334155",
+                transition: "all 0.4s ease",
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              {isSelected && isComplete && (
+                <span style={{ width: 4, height: 4, borderRadius: "50%", background: "#10b981", flexShrink: 0 }} />
+              )}
+              {team.replace(/_/g, " ")}
+            </div>
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Shared sub-components ────────────────────────────────────────────────────
+
+function PulseRing() {
+  return (
+    <motion.div
+      style={{ position: "absolute", inset: -1, borderRadius: 11, border: "2px solid #38bdf8", pointerEvents: "none" }}
+      animate={{ opacity: [0.2, 0.8, 0.2], scale: [1, 1.04, 1] }}
+      transition={{ duration: 1.3, repeat: Infinity, ease: "easeInOut" }}
+    />
+  );
+}
+
+function CompletionGlow() {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: [0, 0.35, 0.12] }}
+      transition={{ duration: 0.8 }}
+      style={{
+        position: "absolute",
+        inset: 0,
+        borderRadius: 11,
+        background: "radial-gradient(ellipse at 50% 60%, rgba(16,185,129,0.25) 0%, transparent 70%)",
+        pointerEvents: "none",
+      }}
+    />
+  );
+}
+
+function IconBubble({
+  Icon,
+  status,
+  c,
+  size = 28,
+}: {
+  Icon: React.ElementType;
+  status: string;
+  c: (typeof COLORS)["idle"];
+  size?: number;
+}) {
+  const iconSize = size - 14;
+  return (
+    <motion.div
+      animate={status === "running" ? { scale: [1, 1.1, 1] } : { scale: 1 }}
+      transition={{ duration: 0.75, repeat: status === "running" ? Infinity : 0 }}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 7,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: c.iconBg,
+      }}
+    >
+      {status === "running" ? (
+        <Loader2 style={{ width: iconSize, height: iconSize, color: c.icon }} className="animate-spin" />
+      ) : status === "complete" ? (
+        <CheckCircle2 style={{ width: iconSize, height: iconSize, color: c.icon }} />
+      ) : status === "error" ? (
+        <XCircle style={{ width: iconSize, height: iconSize, color: c.icon }} />
+      ) : (
+        <Icon style={{ width: iconSize, height: iconSize, color: c.icon }} />
+      )}
     </motion.div>
   );
 }

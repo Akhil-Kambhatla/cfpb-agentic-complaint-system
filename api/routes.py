@@ -88,28 +88,28 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
     async for event in emit("classifier", "complete", _safe_dict(classification), elapsed):
         yield event
 
-    # 2. Causal Analyst
+    # 2. Causal Analyst + Router start simultaneously (visual parallelism)
+    #    Causal runs first since Router needs its output; both emit "running" together.
     async for event in emit("causal_analyst", "running"):
+        yield event
+    async for event in emit("router", "running"):
         yield event
 
     t0 = time.time()
     causal = await loop.run_in_executor(
         None, lambda: CausalAnalystAgent().run(complaint, classification)
     )
-    elapsed = time.time() - t0
-    async for event in emit("causal_analyst", "complete", _safe_dict(causal), elapsed):
+    causal_elapsed = round(time.time() - t0, 2)
+    async for event in emit("causal_analyst", "complete", _safe_dict(causal), causal_elapsed):
         yield event
 
-    # 3. Router
-    async for event in emit("router", "running"):
-        yield event
-
+    # Router runs immediately after causal (needs causal.root_cause)
     t0 = time.time()
     routing = await loop.run_in_executor(
         None, lambda: RouterAgent().run(complaint, classification, causal)
     )
-    elapsed = time.time() - t0
-    async for event in emit("router", "complete", _safe_dict(routing), elapsed):
+    router_elapsed = round(time.time() - t0, 2)
+    async for event in emit("router", "complete", _safe_dict(routing), router_elapsed):
         yield event
 
     # 4. Resolution
