@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 import type {
   ClassificationOutput,
   CausalAnalysisOutput,
@@ -14,38 +14,39 @@ import CausalGraph from "./CausalGraph";
 import ResolutionLetter from "./ResolutionLetter";
 import QualityBadge from "./QualityBadge";
 
-// ── Severity helpers ─────────────────────────────────────────
+// ── Confidence bar ─────────────────────────────────────────────────────────────
 
-const severityColors = {
-  low: "bg-emerald-500/20 text-emerald-300 ring-emerald-500/30",
-  medium: "bg-amber-500/20 text-amber-300 ring-amber-500/30",
-  high: "bg-orange-500/20 text-orange-300 ring-orange-500/30",
-  critical: "bg-rose-500/20 text-rose-300 ring-rose-500/30",
-};
-
-const priorityColors = {
-  P1: "bg-rose-500/20 text-rose-300",
-  P2: "bg-orange-500/20 text-orange-300",
-  P3: "bg-amber-500/20 text-amber-300",
-  P4: "bg-slate-700 text-slate-300",
-};
-
-function ConfidenceBar({ value, label }: { value: number; label?: string }) {
+function ConfidenceBar({ value, label, warnBelow = 0.7 }: { value: number; label?: string; warnBelow?: number }) {
+  const color = value >= 0.8 ? "#10b981" : value >= 0.5 ? "#f59e0b" : "#f43f5e";
+  const isLow = value < warnBelow;
   return (
-    <div className="space-y-1">
-      {label && <p className="text-[10px] text-slate-500 capitalize">{label}</p>}
-      <div className="flex items-center gap-2">
-        <div className="h-1.5 flex-1 rounded-full bg-slate-700">
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {label && (
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <p style={{ fontSize: 11, color: "#4b5563", textTransform: "capitalize" }}>{label}</p>
+          {isLow && (
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 3,
+              padding: "1px 6px", borderRadius: 9999,
+              background: "#fef3c7", border: "1px solid #fcd34d",
+              fontSize: 10, fontWeight: 600, color: "#92400e",
+            }}>
+              <AlertTriangle style={{ width: 9, height: 9 }} />
+              Review
+            </span>
+          )}
+        </div>
+      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ height: 6, flex: 1, borderRadius: 9999, background: "#f3f4f6" }}>
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${value * 100}%` }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-            className={`h-full rounded-full ${
-              value >= 0.8 ? "bg-emerald-500" : value >= 0.5 ? "bg-amber-500" : "bg-rose-500"
-            }`}
+            transition={{ duration: 0.7, ease: "easeOut" }}
+            style={{ height: "100%", borderRadius: 9999, background: color }}
           />
         </div>
-        <span className="text-xs font-mono text-slate-300 w-10 text-right">
+        <span style={{ fontSize: 11, fontFamily: "monospace", color: "#374151", width: 36, textAlign: "right" }}>
           {(value * 100).toFixed(0)}%
         </span>
       </div>
@@ -53,218 +54,279 @@ function ConfidenceBar({ value, label }: { value: number; label?: string }) {
   );
 }
 
-// ── Classifier card ──────────────────────────────────────────
+// ── Classifier card ───────────────────────────────────────────────────────────
 
 export function ClassifierCard({ data }: { data: ClassificationOutput }) {
+  const sevColor =
+    data.severity === "critical" ? { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" } :
+    data.severity === "high"     ? { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" } :
+    data.severity === "medium"   ? { bg: "#fef9c3", text: "#854d0e", border: "#fde047" } :
+                                   { bg: "#d1fae5", text: "#047857", border: "#6ee7b7" };
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <span className="rounded-full bg-sky-500/20 text-sky-300 ring-1 ring-sky-500/30 px-3 py-1 text-xs font-medium">
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <span style={{
+          borderRadius: 9999, padding: "4px 12px", fontSize: 12, fontWeight: 600,
+          background: "#e0f2fe", color: "#0369a1", border: "1px solid #bae6fd",
+        }}>
           {data.predicted_product}
         </span>
-        <span
-          className={`rounded-full ring-1 px-3 py-1 text-xs font-semibold capitalize ${
-            severityColors[data.severity] ?? severityColors.medium
-          }`}
-        >
+        <span style={{
+          borderRadius: 9999, padding: "4px 12px", fontSize: 12, fontWeight: 700,
+          textTransform: "capitalize",
+          background: sevColor.bg, color: sevColor.text, border: `1px solid ${sevColor.border}`,
+        }}>
           {data.severity} severity
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-lg bg-white/5 p-3">
-          <p className="text-[10px] text-slate-500 mb-1">Issue</p>
-          <p className="text-xs text-slate-200">{data.predicted_issue}</p>
-        </div>
-        <div className="rounded-lg bg-white/5 p-3">
-          <p className="text-[10px] text-slate-500 mb-1">Sub-issue</p>
-          <p className="text-xs text-slate-200">{data.predicted_sub_issue ?? "—"}</p>
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {[
+          { label: "Issue", value: data.predicted_issue },
+          { label: "Sub-issue", value: data.predicted_sub_issue ?? "—" },
+        ].map(({ label, value }) => (
+          <div key={label} style={{ borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa", padding: 12 }}>
+            <p style={{ fontSize: 10, color: "#6b7280", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</p>
+            <p style={{ fontSize: 12, color: "#111827" }}>{value}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="space-y-2">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <ConfidenceBar value={data.confidence} label="Classifier confidence" />
-        <ConfidenceBar value={data.compliance_risk_score} label="Compliance risk score" />
+        <ConfidenceBar value={data.compliance_risk_score} label="Compliance risk score" warnBelow={2} />
       </div>
 
-      <div className="rounded-lg bg-white/5 p-3">
-        <p className="text-[10px] text-slate-500 mb-1">Reasoning</p>
-        <p className="text-xs text-slate-300">{data.reasoning}</p>
+      <div style={{ borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa", padding: 12 }}>
+        <p style={{ fontSize: 10, color: "#6b7280", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Reasoning</p>
+        <p style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>{data.reasoning}</p>
       </div>
     </div>
   );
 }
 
-// ── Causal Analyst card ──────────────────────────────────────
+// ── Causal Analyst card ───────────────────────────────────────────────────────
 
 export function CausalCard({ data }: { data: CausalAnalysisOutput }) {
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
-          <p className="text-[10px] text-amber-500 mb-1">Root Cause</p>
-          <p className="text-xs text-amber-100">{data.root_cause}</p>
-        </div>
-        <div className="rounded-lg bg-white/5 p-3">
-          <p className="text-[10px] text-slate-500 mb-1">Causal Depth</p>
-          <p className="text-2xl font-bold text-slate-200">{data.causal_depth}</p>
-          <p className="text-[10px] text-slate-500">hops from root to complaint</p>
-        </div>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <CausalGraph data={data} />
-      <ConfidenceBar value={data.confidence} label="Causal confidence" />
+      <ConfidenceBar value={data.confidence} label="Causal analysis confidence" />
     </div>
   );
 }
 
-// ── Router card ──────────────────────────────────────────────
+// ── Router card ───────────────────────────────────────────────────────────────
 
 export function RouterCard({ data }: { data: RoutingOutput }) {
+  const allTeams = [
+    "compliance", "billing_disputes", "fraud",
+    "customer_service", "legal", "executive_escalation",
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <span className="rounded-full bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/30 px-3 py-1 text-xs font-medium capitalize">
-          {data.assigned_team.replace(/_/g, " ")}
-        </span>
-        <span
-          className={`rounded-full px-3 py-1 text-xs font-bold ${
-            priorityColors[data.priority_level] ?? priorityColors.P3
-          }`}
-        >
-          {data.priority_level}
-        </span>
-        {data.escalation_flag && (
-          <span className="rounded-full bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/30 px-3 py-1 text-xs font-semibold">
-            🚨 Escalated
-          </span>
-        )}
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div>
+        <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Team Assignment
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+          {allTeams.map((team) => {
+            const isSelected = team === data.assigned_team;
+            return (
+              <div
+                key={team}
+                style={{
+                  padding: "8px 10px", borderRadius: 8,
+                  border: `1.5px solid ${isSelected ? "#10b981" : "#e5e7eb"}`,
+                  background: isSelected ? "#ecfdf5" : "#fafafa",
+                  fontSize: 11, fontWeight: isSelected ? 700 : 400,
+                  color: isSelected ? "#047857" : "#6b7280",
+                  textAlign: "center",
+                  transition: "all 0.3s ease",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                }}
+              >
+                {isSelected && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", flexShrink: 0 }} />}
+                {team.replace(/_/g, " ")}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {data.escalation_reason && (
-        <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 p-3">
-          <p className="text-[10px] text-rose-400 mb-1">Escalation Reason</p>
-          <p className="text-xs text-rose-100">{data.escalation_reason}</p>
+        <div style={{ borderRadius: 10, border: "1px solid #fca5a5", background: "#fff1f2", padding: 12 }}>
+          <p style={{ fontSize: 10, color: "#ef4444", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Escalation Reason</p>
+          <p style={{ fontSize: 12, color: "#991b1b", lineHeight: 1.6 }}>{data.escalation_reason}</p>
         </div>
       )}
 
-      <div className="rounded-lg bg-white/5 p-3">
-        <p className="text-[10px] text-slate-500 mb-1">Routing Reasoning</p>
-        <p className="text-xs text-slate-300">{data.reasoning}</p>
+      <div style={{ borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa", padding: 12 }}>
+        <p style={{ fontSize: 10, color: "#6b7280", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Routing Reasoning</p>
+        <p style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>{data.reasoning}</p>
       </div>
     </div>
   );
 }
 
-// ── Resolution card ──────────────────────────────────────────
+// ── Resolution card ───────────────────────────────────────────────────────────
 
 export function ResolutionCard({ data }: { data: ResolutionOutput }) {
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-lg bg-white/5 p-3">
-          <p className="text-[10px] text-slate-500 mb-2">Regulations</p>
-          <div className="flex flex-wrap gap-1">
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Regulations + timeline */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
+        <div style={{ borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa", padding: 12 }}>
+          <p style={{ fontSize: 10, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Applicable Regulations</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
             {data.applicable_regulations.map((reg) => (
               <span
                 key={reg}
-                className="rounded bg-sky-500/20 text-sky-300 px-1.5 py-0.5 text-[10px] font-mono"
+                style={{
+                  borderRadius: 6, background: "#e0f2fe", color: "#0369a1",
+                  padding: "2px 8px", fontSize: 11, fontFamily: "monospace", fontWeight: 600,
+                }}
               >
                 {reg}
               </span>
             ))}
           </div>
         </div>
-        <div className="rounded-lg bg-white/5 p-3">
-          <p className="text-[10px] text-slate-500 mb-1">Est. Resolution</p>
-          <p className="text-2xl font-bold text-slate-200">{data.estimated_resolution_days}</p>
-          <p className="text-[10px] text-slate-500">days</p>
+        <div style={{ borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa", padding: 12, textAlign: "center", minWidth: 100 }}>
+          <p style={{ fontSize: 10, color: "#6b7280", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Est. Resolution</p>
+          <p style={{ fontSize: 28, fontWeight: 800, color: "#111827", lineHeight: 1 }}>{data.estimated_resolution_days}</p>
+          <p style={{ fontSize: 10, color: "#6b7280" }}>business days</p>
         </div>
       </div>
 
+      {/* Remediation steps */}
       <div>
-        <p className="text-[10px] text-slate-500 mb-2">Remediation Steps</p>
-        <ol className="space-y-2">
+        <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>Remediation Steps</p>
+        <ol style={{ display: "flex", flexDirection: "column", gap: 8, padding: 0, margin: 0, listStyle: "none" }}>
           {data.remediation_steps.map((step, i) => (
-            <li key={i} className="flex items-start gap-2">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-[10px] font-bold text-emerald-400">
+            <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <span style={{
+                display: "flex", width: 22, height: 22, flexShrink: 0,
+                alignItems: "center", justifyContent: "center",
+                borderRadius: "50%", background: "#d1fae5", fontSize: 11, fontWeight: 700, color: "#059669",
+              }}>
                 {i + 1}
               </span>
-              <p className="text-xs text-slate-300 pt-0.5">{step}</p>
+              <p style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, paddingTop: 2 }}>{step}</p>
             </li>
           ))}
         </ol>
       </div>
 
+      {/* Preventive recommendations */}
       {data.preventive_recommendations && data.preventive_recommendations.length > 0 && (
         <div>
-          <p className="text-[10px] text-slate-500 mb-2">Preventive Recommendations</p>
-          <ul className="space-y-1.5">
+          <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Preventive Recommendations</p>
+          <ul style={{ display: "flex", flexDirection: "column", gap: 6, padding: 0, margin: 0, listStyle: "none" }}>
             {data.preventive_recommendations.map((rec, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span className="text-emerald-500 mt-0.5 text-xs">•</span>
-                <p className="text-xs text-slate-300">{rec}</p>
+              <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <span style={{ color: "#10b981", flexShrink: 0, marginTop: 2 }}>•</span>
+                <p style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>{rec}</p>
               </li>
             ))}
           </ul>
         </div>
       )}
 
+      {/* Customer letter */}
       <ResolutionLetter letter={data.customer_response_letter} />
     </div>
   );
 }
 
-// ── Quality Check card ───────────────────────────────────────
+// ── Quality Check card ────────────────────────────────────────────────────────
 
 export function QualityCheckCard({ data }: { data: QualityCheckOutput }) {
   const [traceOpen, setTraceOpen] = useState(false);
+  const pct = Math.round(data.overall_confidence * 100);
+  const circumference = 2 * Math.PI * 38;
+  const isLowConfidence = data.overall_confidence < 0.7;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-4">
-        <div className="text-center">
-          <p className="text-4xl font-bold text-white">
-            {(data.overall_confidence * 100).toFixed(0)}
-            <span className="text-xl text-slate-500">%</span>
-          </p>
-          <p className="text-[10px] text-slate-500">overall confidence</p>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Human-in-the-loop warning */}
+      {isLowConfidence && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            display: "flex", alignItems: "flex-start", gap: 10,
+            borderRadius: 10, border: "1px solid #fcd34d",
+            borderLeft: "4px solid #f59e0b",
+            background: "#fffbeb", padding: "12px 14px",
+          }}
+        >
+          <AlertTriangle style={{ width: 16, height: 16, color: "#d97706", flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#92400e", margin: 0 }}>Human Review Recommended</p>
+            <p style={{ fontSize: 11, color: "#78350f", marginTop: 2, lineHeight: 1.5 }}>
+              Overall confidence is {pct}% — below the 70% threshold. A human reviewer should verify these classifications before acting.
+            </p>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Confidence ring + badge */}
+      <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+        <svg width="96" height="96" viewBox="0 0 96 96">
+          <circle cx="48" cy="48" r="38" fill="none" stroke="#f3f4f6" strokeWidth="7" />
+          <motion.circle
+            cx="48" cy="48" r="38" fill="none"
+            stroke={pct >= 80 ? "#10b981" : pct >= 60 ? "#f59e0b" : "#f43f5e"}
+            strokeWidth="7" strokeLinecap="round"
+            strokeDasharray={circumference}
+            initial={{ strokeDashoffset: circumference }}
+            animate={{ strokeDashoffset: circumference * (1 - data.overall_confidence) }}
+            transition={{ duration: 1, ease: "easeOut" }}
+            style={{ transformOrigin: "48px 48px", transform: "rotate(-90deg)" }}
+          />
+          <text x="48" y="52" textAnchor="middle" fontSize="20" fontWeight="800" fill="#111827">
+            {pct}%
+          </text>
+        </svg>
+        <div>
+          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 8 }}>Overall confidence</p>
+          <QualityBadge flag={data.quality_flag} size="lg" />
         </div>
-        <QualityBadge flag={data.quality_flag} size="lg" />
       </div>
 
-      <div>
-        <p className="text-[10px] text-slate-500 mb-2">Per-Agent Confidence</p>
-        <div className="space-y-1.5">
-          {Object.entries(data.agent_confidences).map(([agent, conf]) => (
-            <ConfidenceBar key={agent} value={conf} label={agent.replace(/_/g, " ")} />
-          ))}
-        </div>
+      {/* Per-agent bars */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <p style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>Per-Agent Confidence</p>
+        {Object.entries(data.agent_confidences).map(([agent, conf]) => (
+          <ConfidenceBar key={agent} value={conf} label={agent.replace(/_/g, " ")} />
+        ))}
       </div>
 
       {data.consistency_issues.length > 0 && (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-          <p className="text-[10px] text-amber-500 mb-1">Consistency Issues</p>
-          <ul className="list-disc list-inside space-y-1">
+        <div style={{ borderRadius: 10, border: "1px solid #fcd34d", background: "#fffbeb", padding: 12 }}>
+          <p style={{ fontSize: 10, color: "#92400e", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Consistency Issues</p>
+          <ul style={{ padding: 0, margin: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 4 }}>
             {data.consistency_issues.map((issue, i) => (
-              <li key={i} className="text-xs text-amber-200">
-                {issue}
-              </li>
+              <li key={i} style={{ fontSize: 12, color: "#78350f" }}>{issue}</li>
             ))}
           </ul>
         </div>
       )}
 
-      <div className="rounded-lg border border-white/10 bg-white/5">
+      {/* Reasoning trace */}
+      <div style={{ borderRadius: 10, border: "1px solid #e5e7eb" }}>
         <button
           onClick={() => setTraceOpen(!traceOpen)}
-          className="flex w-full items-center justify-between px-4 py-2.5"
+          style={{
+            display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between",
+            padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer",
+          }}
         >
-          <span className="text-xs text-slate-400">Reasoning Trace</span>
-          {traceOpen ? (
-            <ChevronUp className="h-3.5 w-3.5 text-slate-500" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
-          )}
+          <span style={{ fontSize: 12, color: "#4b5563" }}>Reasoning Trace</span>
+          {traceOpen ? <ChevronUp style={{ width: 14, height: 14, color: "#9ca3af" }} /> : <ChevronDown style={{ width: 14, height: 14, color: "#9ca3af" }} />}
         </button>
         <AnimatePresence>
           {traceOpen && (
@@ -272,9 +334,10 @@ export function QualityCheckCard({ data }: { data: QualityCheckOutput }) {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden"
+              transition={{ duration: 0.22 }}
+              style={{ overflow: "hidden" }}
             >
-              <p className="px-4 pb-3 text-xs text-slate-300 border-t border-white/10 pt-2">
+              <p style={{ padding: "10px 14px", paddingTop: 0, borderTop: "1px solid #f3f4f6", fontSize: 12, color: "#374151", lineHeight: 1.6 }}>
                 {data.reasoning_trace}
               </p>
             </motion.div>
@@ -285,7 +348,7 @@ export function QualityCheckCard({ data }: { data: QualityCheckOutput }) {
   );
 }
 
-// ── Generic expandable wrapper ───────────────────────────────
+// ── Generic expandable wrapper ────────────────────────────────────────────────
 
 interface CardWrapperProps {
   title: string;
@@ -302,32 +365,37 @@ export function AgentCardWrapper({
   badge,
   children,
   defaultOpen = true,
-  delay = 0,
 }: CardWrapperProps) {
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.4 }}
-      className="rounded-xl border border-white/10 bg-white/5 overflow-hidden"
-    >
+    <div style={{
+      borderRadius: 16, border: "1px solid #e5e7eb",
+      background: "#ffffff", boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+      overflow: "hidden",
+    }}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between px-5 py-4"
+        style={{
+          display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between",
+          padding: "16px 20px", background: "transparent", border: "none", cursor: "pointer",
+        }}
       >
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
-            <Icon className="h-4 w-4 text-slate-300" />
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 34, height: 34, borderRadius: 9,
+            background: "#f3f4f6", border: "1px solid #e5e7eb",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Icon style={{ width: 17, height: 17, color: "#374151" }} />
           </div>
-          <span className="font-semibold text-white">{title}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>{title}</span>
           {badge}
         </div>
         {open ? (
-          <ChevronUp className="h-4 w-4 text-slate-400" />
+          <ChevronUp style={{ width: 16, height: 16, color: "#9ca3af" }} />
         ) : (
-          <ChevronDown className="h-4 w-4 text-slate-400" />
+          <ChevronDown style={{ width: 16, height: 16, color: "#9ca3af" }} />
         )}
       </button>
       <AnimatePresence initial={false}>
@@ -337,12 +405,12 @@ export function AgentCardWrapper({
             animate={{ height: "auto" }}
             exit={{ height: 0 }}
             transition={{ duration: 0.25 }}
-            className="overflow-hidden"
+            style={{ overflow: "hidden" }}
           >
-            <div className="border-t border-white/10 px-5 py-4">{children}</div>
+            <div style={{ borderTop: "1px solid #f3f4f6", padding: "16px 20px" }}>{children}</div>
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }

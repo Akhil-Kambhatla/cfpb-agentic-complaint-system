@@ -7,6 +7,7 @@ from src.models.schemas import (
     ComplaintInput,
     QualityCheckOutput,
     ResolutionOutput,
+    RiskAnalysisOutput,
     RoutingOutput,
 )
 from src.utils.llm import ask_claude_json
@@ -21,7 +22,8 @@ _DEFAULTS = {
     "reasoning_trace": "Quality check could not be completed automatically.",
     "agent_confidences": {
         "classifier": 0.5,
-        "causal_analyst": 0.5,
+        "event_chain": 0.5,
+        "risk_analyzer": 0.5,
         "router": 0.5,
         "resolution": 0.5,
     },
@@ -35,12 +37,13 @@ class QualityCheckAgent:
         self,
         complaint: ComplaintInput,
         classification: ClassificationOutput,
-        causal_analysis: CausalAnalysisOutput,
+        event_chain: CausalAnalysisOutput,
         routing: RoutingOutput,
         resolution: ResolutionOutput,
+        risk_analysis: RiskAnalysisOutput,
     ) -> QualityCheckOutput:
         """Run quality check. Returns QualityCheckOutput."""
-        narrative = complaint.narrative[:1000]  # shorter for quality check context
+        narrative = complaint.narrative[:1000]
 
         prompt = QUALITY_CHECK_USER_TEMPLATE.format(
             narrative=narrative,
@@ -49,10 +52,14 @@ class QualityCheckAgent:
             severity=classification.severity,
             compliance_risk_score=classification.compliance_risk_score,
             classifier_confidence=classification.confidence,
-            root_cause=causal_analysis.root_cause,
-            causal_depth=causal_analysis.causal_depth,
-            counterfactual_intervention=causal_analysis.counterfactual_intervention,
-            causal_confidence=causal_analysis.confidence,
+            root_cause=event_chain.root_cause,
+            causal_depth=event_chain.causal_depth,
+            counterfactual_intervention=event_chain.counterfactual_intervention,
+            causal_confidence=event_chain.confidence,
+            resolution_probability=risk_analysis.resolution_probability,
+            risk_gap=risk_analysis.risk_gap,
+            risk_level=risk_analysis.risk_level,
+            regulatory_risk=risk_analysis.regulatory_risk,
             assigned_team=routing.assigned_team,
             priority_level=routing.priority_level,
             escalation_flag=routing.escalation_flag,

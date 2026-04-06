@@ -1,10 +1,11 @@
-"""Router Agent — assigns complaints to internal teams with priority levels."""
+"""Router Agent — assigns complaints to internal teams using Bayesian risk gap for priority."""
 import logging
 
 from src.models.schemas import (
     CausalAnalysisOutput,
     ClassificationOutput,
     ComplaintInput,
+    RiskAnalysisOutput,
     RoutingOutput,
 )
 from src.utils.llm import ask_claude_json
@@ -28,15 +29,18 @@ class RouterAgent:
         self,
         complaint: ComplaintInput,
         classification: ClassificationOutput,
-        causal_analysis: CausalAnalysisOutput,
+        event_chain: CausalAnalysisOutput,
+        risk_analysis: RiskAnalysisOutput,
     ) -> RoutingOutput:
-        """Run routing. Returns RoutingOutput."""
+        """Run routing using Bayesian risk gap for priority. Returns RoutingOutput."""
         prompt = ROUTER_USER_TEMPLATE.format(
             product=classification.predicted_product,
             issue=classification.predicted_issue,
             severity=classification.severity,
             compliance_risk_score=classification.compliance_risk_score,
-            root_cause=causal_analysis.root_cause,
+            root_cause=event_chain.root_cause,
+            risk_gap=risk_analysis.risk_gap,
+            risk_level=risk_analysis.risk_level,
         )
         try:
             data = ask_claude_json(prompt, system=ROUTER_SYSTEM)
@@ -45,4 +49,22 @@ class RouterAgent:
             return RoutingOutput(**data)
         except Exception as exc:
             logger.error(f"RouterAgent failed for complaint {complaint.complaint_id}: {exc}")
-            return RoutingOutput(**_DEFAULTS)
+            # Rule-based priority fallback using risk_gap
+            priority = _gap_to_priority(risk_analysis.risk_gap)
+            return RoutingOutput(
+                assigned_team=_DEFAULTS["assigned_team"],
+                priority_level=priority,
+                escalation_flag=risk_analysis.risk_level in ("critical", "high"),
+                escalation_reason="Bayesian risk analysis indicates elevated resolution risk." if risk_analysis.risk_level in ("critical", "high") else None,
+                reasoning="Routing failed; rule-based fallback applied using risk_gap.",
+            )
+
+
+def _gap_to_priority(risk_gap: float) -> str:
+    if risk_gap > 0.30:
+        return "P1"
+    if risk_gap > 0.15:
+        return "P2"
+    if risk_gap > 0.05:
+        return "P3"
+    return "P4"

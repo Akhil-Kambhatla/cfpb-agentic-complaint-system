@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Mail } from "lucide-react";
+import { ChevronDown, ChevronUp, Mail, Copy, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface Props {
@@ -10,22 +10,28 @@ interface Props {
 
 export default function ResolutionLetter({ letter }: Props) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(letter);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
-    <div className="rounded-lg border border-white/10 bg-white/5">
+    <div style={{ borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        style={{
+          display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 16px", background: "transparent", border: "none", cursor: "pointer",
+        }}
       >
-        <div className="flex items-center gap-2">
-          <Mail className="h-4 w-4 text-sky-400" />
-          <span className="text-sm font-medium text-slate-200">Customer Response Letter</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Mail style={{ width: 15, height: 15, color: "#0ea5e9" }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>Customer Response Letter</span>
         </div>
-        {open ? (
-          <ChevronUp className="h-4 w-4 text-slate-400" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-slate-400" />
-        )}
+        {open ? <ChevronUp style={{ width: 15, height: 15, color: "#9ca3af" }} /> : <ChevronDown style={{ width: 15, height: 15, color: "#9ca3af" }} />}
       </button>
 
       <AnimatePresence>
@@ -35,10 +41,38 @@ export default function ResolutionLetter({ letter }: Props) {
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden"
+            style={{ overflow: "hidden" }}
           >
-            <div className="border-t border-white/10 mx-4 mb-4 mt-0">
-              <div className="mt-3 rounded-lg bg-slate-100 p-5 font-serif text-slate-900 text-sm leading-relaxed whitespace-pre-wrap shadow-inner">
+            <div style={{ borderTop: "1px solid #f3f4f6", padding: "0 16px 16px" }}>
+              {/* Copy button */}
+              <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 0 4px" }}>
+                <button
+                  onClick={handleCopy}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "5px 10px", borderRadius: 7, fontSize: 11,
+                    border: "1px solid #e5e7eb", background: "#fafafa", cursor: "pointer",
+                    color: copied ? "#059669" : "#6b7280",
+                  }}
+                >
+                  {copied ? <Check style={{ width: 12, height: 12 }} /> : <Copy style={{ width: 12, height: 12 }} />}
+                  {copied ? "Copied!" : "Copy to clipboard"}
+                </button>
+              </div>
+
+              {/* Letter */}
+              <div style={{
+                borderRadius: 10,
+                background: "#fffef7",
+                border: "1px solid #e5e7eb",
+                padding: "24px 28px",
+                fontFamily: "Georgia, 'Times New Roman', serif",
+                fontSize: 13,
+                color: "#1a1a1a",
+                lineHeight: 1.8,
+                whiteSpace: "pre-wrap",
+                boxShadow: "inset 0 1px 4px rgba(0,0,0,0.04)",
+              }}>
                 {letter}
               </div>
             </div>

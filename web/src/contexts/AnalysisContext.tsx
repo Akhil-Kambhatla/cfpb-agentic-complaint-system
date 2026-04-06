@@ -7,6 +7,7 @@ import type {
   AgentState,
   ClassificationOutput,
   CausalAnalysisOutput,
+  RiskAnalysisOutput,
   RoutingOutput,
   ResolutionOutput,
   QualityCheckOutput,
@@ -21,7 +22,8 @@ export interface LogEntry {
 
 const AGENTS: AgentName[] = [
   "classifier",
-  "causal_analyst",
+  "risk_analyzer",
+  "event_chain",
   "router",
   "resolution",
   "quality_check",
@@ -46,7 +48,8 @@ interface AnalysisContextType {
   log: LogEntry[];
 
   classification: ClassificationOutput | null;
-  causalAnalysis: CausalAnalysisOutput | null;
+  eventChain: CausalAnalysisOutput | null;
+  riskAnalysis: RiskAnalysisOutput | null;
   routing: RoutingOutput | null;
   resolution: ResolutionOutput | null;
   qualityCheck: QualityCheckOutput | null;
@@ -72,10 +75,12 @@ function runningMsg(agent: string, charCount: number): string {
   switch (agent) {
     case "classifier":
       return `Reading narrative... ${charCount} characters`;
-    case "causal_analyst":
-      return "Extracting causal chain...";
+    case "risk_analyzer":
+      return "Running Bayesian posterior inference...";
+    case "event_chain":
+      return "Extracting event chain...";
     case "router":
-      return "Analyzing classification for team assignment...";
+      return "Analyzing risk gap for team assignment...";
     case "resolution":
       return "Generating remediation plan...";
     case "quality_check":
@@ -91,9 +96,18 @@ function completeMsg(agent: string, result: unknown, elapsed?: number): string {
   switch (agent) {
     case "classifier":
       return `Identified: ${r?.predicted_product} | ${r?.predicted_issue} | Severity: ${String(r?.severity).toUpperCase()}${t}`;
-    case "causal_analyst": {
+    case "risk_analyzer": {
+      const prob = r?.resolution_probability != null
+        ? `${(Number(r.resolution_probability) * 100).toFixed(0)}%`
+        : "?";
+      const gap = r?.risk_gap != null
+        ? `${Number(r.risk_gap) >= 0 ? "+" : ""}${(Number(r.risk_gap) * 100).toFixed(0)}%`
+        : "";
+      return `Resolution probability: ${prob}. Risk gap vs baseline: ${gap}. Level: ${String(r?.risk_level ?? "").toUpperCase()}${t}`;
+    }
+    case "event_chain": {
       const depth = r?.causal_depth ?? "?";
-      return `Found ${depth}-step causal chain. Root cause: ${r?.root_cause}${t}`;
+      return `Found ${depth}-step event chain. Root cause: ${r?.root_cause}${t}`;
     }
     case "router": {
       const reasoning = String(r?.reasoning ?? "").slice(0, 70);
@@ -132,8 +146,10 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
 
   const [classification, setClassification] =
     useState<ClassificationOutput | null>(null);
-  const [causalAnalysis, setCausalAnalysis] =
+  const [eventChain, setEventChain] =
     useState<CausalAnalysisOutput | null>(null);
+  const [riskAnalysis, setRiskAnalysis] =
+    useState<RiskAnalysisOutput | null>(null);
   const [routing, setRouting] = useState<RoutingOutput | null>(null);
   const [resolution, setResolution] = useState<ResolutionOutput | null>(null);
   const [qualityCheck, setQualityCheck] = useState<QualityCheckOutput | null>(
@@ -151,7 +167,8 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
   const resetAnalysis = useCallback(() => {
     setAgentStates(makeInitialStates());
     setClassification(null);
-    setCausalAnalysis(null);
+    setEventChain(null);
+    setRiskAnalysis(null);
     setRouting(null);
     setResolution(null);
     setQualityCheck(null);
@@ -202,8 +219,10 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
 
           if (agentKey === "classifier")
             setClassification(event.result as ClassificationOutput);
-          if (agentKey === "causal_analyst")
-            setCausalAnalysis(event.result as CausalAnalysisOutput);
+          if (agentKey === "event_chain")
+            setEventChain(event.result as CausalAnalysisOutput);
+          if (agentKey === "risk_analyzer")
+            setRiskAnalysis(event.result as RiskAnalysisOutput);
           if (agentKey === "router") setRouting(event.result as RoutingOutput);
           if (agentKey === "resolution")
             setResolution(event.result as ResolutionOutput);
@@ -242,7 +261,8 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
         agentStates,
         log,
         classification,
-        causalAnalysis,
+        eventChain,
+        riskAnalysis,
         routing,
         resolution,
         qualityCheck,

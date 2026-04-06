@@ -7,6 +7,7 @@ from src.models.schemas import (
     ClassificationOutput,
     ComplaintInput,
     ResolutionOutput,
+    RiskAnalysisOutput,
     RoutingOutput,
 )
 from src.utils.llm import ask_claude_json
@@ -43,8 +44,9 @@ class ResolutionAgent:
         self,
         complaint: ComplaintInput,
         classification: ClassificationOutput,
-        causal_analysis: CausalAnalysisOutput,
+        event_chain: CausalAnalysisOutput,
         routing: RoutingOutput,
+        risk_analysis: RiskAnalysisOutput,
     ) -> ResolutionOutput:
         """Run resolution generation. Returns ResolutionOutput."""
         narrative = complaint.narrative[:3000]
@@ -56,8 +58,11 @@ class ResolutionAgent:
             issue=classification.predicted_issue,
             severity=classification.severity,
             compliance_risk_score=classification.compliance_risk_score,
-            root_cause=causal_analysis.root_cause,
-            counterfactual_intervention=causal_analysis.counterfactual_intervention,
+            root_cause=event_chain.root_cause,
+            counterfactual_intervention=event_chain.counterfactual_intervention,
+            resolution_probability=risk_analysis.resolution_probability,
+            risk_gap=risk_analysis.risk_gap,
+            recommended_action=risk_analysis.recommended_action,
             assigned_team=routing.assigned_team,
             priority_level=routing.priority_level,
             regulations=", ".join(regulations),
@@ -66,7 +71,6 @@ class ResolutionAgent:
             data = ask_claude_json(prompt, system=RESOLUTION_SYSTEM)
             for key, default in _DEFAULTS.items():
                 data.setdefault(key, default)
-            # Ensure lists are not empty
             if not data.get("remediation_steps"):
                 data["remediation_steps"] = _DEFAULTS["remediation_steps"]
             if not data.get("preventive_recommendations"):

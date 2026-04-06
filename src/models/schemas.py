@@ -30,22 +30,73 @@ class ClassificationOutput(BaseModel):
 
 
 class CausalEdge(BaseModel):
-    """A single causal relationship in the DAG."""
+    """A single event in the causal chain."""
     cause: str
     effect: str
     description: str
 
 
 class CausalAnalysisOutput(BaseModel):
-    """Output from the Causal Analyst Agent."""
+    """Output from the Event Chain Agent (formerly Causal Analyst)."""
     causal_chain: list[CausalEdge]
     root_cause: str
     causal_depth: int = Field(description="Number of hops from root cause to complaint")
     counterfactual_intervention: str = Field(
-        description="What would have had to be different to prevent this complaint"
+        description="Key event that, if changed, would have prevented this complaint"
     )
     prevention_recommendation: str
     confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str
+
+
+class RiskAnalysisOutput(BaseModel):
+    """Output from the Bayesian Risk Analyzer Agent."""
+    resolution_probability: float = Field(
+        ge=0.0, le=1.0,
+        description="Posterior mean probability this complaint type gets resolved"
+    )
+    credible_interval_lower: float = Field(
+        ge=0.0, le=1.0,
+        description="5th percentile of posterior resolution probability"
+    )
+    credible_interval_upper: float = Field(
+        ge=0.0, le=1.0,
+        description="95th percentile of posterior resolution probability"
+    )
+    risk_gap: float = Field(
+        description="Product baseline resolution rate minus predicted probability; positive = under-performing"
+    )
+    regulatory_risk: float = Field(
+        ge=0.0, le=1.0,
+        description="Composite regulatory exposure score based on product type and narrative signals"
+    )
+    intervention_effect: float = Field(
+        description="Estimated change in resolution probability if key risk factors are addressed"
+    )
+    company_baseline: float = Field(
+        ge=0.0, le=1.0,
+        description="Historical resolution rate for this product category"
+    )
+    company_resolution_rate: Optional[float] = Field(
+        default=None,
+        description="Historical resolution rate for this specific company from CFPB dataset"
+    )
+    posterior_std: float = Field(
+        description="Standard deviation of the posterior predictive distribution"
+    )
+    feature_contributions: dict[str, float] = Field(
+        description="Per-feature contribution to the risk score"
+    )
+    risk_level: str = Field(
+        description="low, medium, high, or critical based on risk_gap magnitude"
+    )
+    recommended_action: str = Field(
+        description="Specific action recommended based on the risk profile"
+    )
+    confidence: float = Field(
+        ge=0.0, le=1.0,
+        description="Model confidence based on posterior uncertainty"
+    )
     reasoning: str
 
 
@@ -81,7 +132,9 @@ class PipelineOutput(BaseModel):
     """Complete output from the entire pipeline."""
     complaint: ComplaintInput
     classification: ClassificationOutput
-    causal_analysis: CausalAnalysisOutput
+    event_chain: CausalAnalysisOutput
+    risk_analysis: RiskAnalysisOutput
     routing: RoutingOutput
     resolution: ResolutionOutput
     quality_check: QualityCheckOutput
+    slack_alert_sent: bool = False

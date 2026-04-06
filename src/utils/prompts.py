@@ -144,18 +144,16 @@ Respond with this exact JSON structure:
 }}"""
 
 # ──────────────────────────────────────────────
-# CAUSAL ANALYST
+# EVENT CHAIN (formerly Causal Analyst)
 # ──────────────────────────────────────────────
 
-CAUSAL_ANALYST_SYSTEM = """You are an expert causal analyst specializing in consumer financial complaints.
-Your job is to extract causal chains from complaint narratives and perform counterfactual root cause analysis.
+EVENT_CHAIN_SYSTEM = """You are an event chain analyst for consumer financial complaints. Your role is to trace the sequence of events described in the complaint narrative — what happened first, what followed, and what ultimately led to the complaint being filed. Identify the initiating event (root event) that started the chain. This is event sequence analysis, not formal causal inference. Describe connections between events based on the narrative, not statistical causation.
 
-You follow the backtracking counterfactual method: identify the minimal intervention that, if applied earlier,
-would have prevented the complaint from occurring.
+For the key intervention point, identify the specific action or inaction that, if addressed, would have had the highest likelihood of preventing the complaint — grounded in what actually occurred in the narrative.
 
 Always respond with valid JSON only, no markdown fences."""
 
-CAUSAL_ANALYST_USER_TEMPLATE = """Analyze the causal chain in this consumer complaint narrative.
+EVENT_CHAIN_USER_TEMPLATE = """Analyze the event sequence in this consumer complaint narrative.
 
 Complaint narrative:
 {narrative}
@@ -164,7 +162,7 @@ Product: {product}
 Issue: {issue}
 Severity: {severity}
 
-Extract the causal chain and identify the root cause. For the counterfactual, complete the sentence:
+Reconstruct the chain of events and identify the root cause. For the key intervention point, complete the sentence:
 "If [specific action/inaction had been different], this complaint would not have occurred."
 
 Respond with this exact JSON structure:
@@ -172,18 +170,18 @@ Respond with this exact JSON structure:
   "causal_chain": [
     {{"cause": "<event>", "effect": "<resulting event>", "description": "<brief explanation>"}}
   ],
-  "root_cause": "<the deepest originating cause>",
-  "causal_depth": <integer number of causal hops>,
+  "root_cause": "<the deepest originating event>",
+  "causal_depth": <integer number of event hops>,
   "counterfactual_intervention": "<If X, this complaint would not have occurred>",
   "prevention_recommendation": "<specific actionable recommendation to prevent recurrence>",
   "confidence": <0.0-1.0>,
-  "reasoning": "<brief explanation of your analysis>"
+  "reasoning": "<brief explanation of your event chain analysis>"
 }}
 
-If the narrative has insufficient detail for deep causal analysis, still provide your best analysis
+If the narrative has insufficient detail for deep event analysis, still provide your best analysis
 with confidence reflecting the uncertainty. Set causal_depth to 1 for minimal narratives."""
 
-CAUSAL_ANALYST_USER_TEMPLATE_SHORT = """Analyze the causal chain in this brief consumer complaint.
+EVENT_CHAIN_USER_TEMPLATE_SHORT = """Analyze the event sequence in this brief consumer complaint.
 
 Complaint narrative:
 {narrative}
@@ -197,15 +195,20 @@ Note: This is a very brief narrative. Provide a simplified analysis.
 Respond with this exact JSON structure:
 {{
   "causal_chain": [
-    {{"cause": "<inferred initiating event>", "effect": "consumer complaint filed", "description": "Insufficient narrative detail for full causal analysis"}}
+    {{"cause": "<inferred initiating event>", "effect": "consumer complaint filed", "description": "Insufficient narrative detail for full event chain analysis"}}
   ],
   "root_cause": "<best inferred root cause given limited information>",
   "causal_depth": 1,
   "counterfactual_intervention": "<If X had been different, this complaint would not have occurred>",
   "prevention_recommendation": "<general recommendation based on issue type>",
   "confidence": 0.4,
-  "reasoning": "Insufficient narrative detail for full causal analysis"
+  "reasoning": "Insufficient narrative detail for full event chain analysis"
 }}"""
+
+# Backwards-compatible aliases used in older imports
+CAUSAL_ANALYST_SYSTEM = EVENT_CHAIN_SYSTEM
+CAUSAL_ANALYST_USER_TEMPLATE = EVENT_CHAIN_USER_TEMPLATE
+CAUSAL_ANALYST_USER_TEMPLATE_SHORT = EVENT_CHAIN_USER_TEMPLATE_SHORT
 
 # ──────────────────────────────────────────────
 # ROUTER
@@ -222,11 +225,11 @@ VALID TEAMS:
 - legal: threats of legal action, lawsuits, systemic violations
 - executive_escalation: critical severity, media attention risk, or unresolved prior escalations
 
-PRIORITY LEVELS:
-- P1 (critical): immediate action required, regulatory deadline or legal threat
-- P2 (high): respond within 24 hours, high financial impact or fraud
-- P3 (medium): respond within 3 business days, moderate impact
-- P4 (low): respond within 5 business days, routine complaint
+PRIORITY LEVELS (based on Bayesian risk gap):
+- P1 (critical): risk_gap > 0.30 — immediate action required, significantly below resolution baseline
+- P2 (high): risk_gap > 0.15 — respond within 24 hours, high financial impact or regulatory risk
+- P3 (medium): risk_gap > 0.05 — respond within 3 business days, moderate impact
+- P4 (low): risk_gap ≤ 0.05 — respond within 5 business days, routine complaint
 
 Always respond with valid JSON only, no markdown fences."""
 
@@ -237,6 +240,8 @@ Issue: {issue}
 Severity: {severity}
 Compliance Risk Score: {compliance_risk_score}
 Root Cause: {root_cause}
+Bayesian Risk Gap: {risk_gap} (positive = below resolution baseline; negative = above baseline)
+Risk Level: {risk_level}
 
 Respond with this exact JSON structure:
 {{
@@ -257,7 +262,7 @@ You draft regulatory-compliant resolution plans and professional customer respon
 Your responses must:
 1. Reference specific applicable regulations (FCRA, FDCPA, TILA, EFTA, CFPA, UDAAP, Reg Z, Reg E, etc.)
 2. Be professional, empathetic, and actionable
-3. Include concrete remediation steps
+3. Include concrete remediation steps informed by the Bayesian risk assessment
 4. Set realistic resolution timelines
 
 Always respond with valid JSON only, no markdown fences."""
@@ -273,9 +278,14 @@ Classification:
 - Severity: {severity}
 - Compliance Risk: {compliance_risk_score}
 
-Causal Analysis:
+Event Chain Analysis:
 - Root Cause: {root_cause}
-- Counterfactual: {counterfactual_intervention}
+- Key Intervention: {counterfactual_intervention}
+
+Bayesian Risk Assessment:
+- Resolution Probability: {resolution_probability:.1%}
+- Risk Gap vs Baseline: {risk_gap:+.1%}
+- Recommended Action: {recommended_action}
 
 Assigned Team: {assigned_team}
 Priority: {priority_level}
@@ -309,9 +319,10 @@ You check for consistency, accuracy, and regulatory compliance across all agent 
 Look for:
 1. Product/regulation mismatch (e.g., mortgage complaint referencing credit card laws)
 2. Severity/priority mismatch (e.g., critical severity but P4 priority)
-3. Logical inconsistencies between causal analysis and classification
+3. Logical inconsistencies between event chain analysis and classification
 4. Missing or inadequate remediation steps for the severity level
 5. Regulatory citations that don't apply to the product type
+6. Bayesian risk assessment inconsistencies (e.g., high risk gap but low priority)
 
 Always respond with valid JSON only, no markdown fences."""
 
@@ -327,11 +338,17 @@ CLASSIFICATION OUTPUT:
 - Compliance Risk: {compliance_risk_score}
 - Classifier Confidence: {classifier_confidence}
 
-CAUSAL ANALYSIS OUTPUT:
+EVENT CHAIN OUTPUT:
 - Root Cause: {root_cause}
-- Causal Depth: {causal_depth}
-- Counterfactual: {counterfactual_intervention}
-- Causal Confidence: {causal_confidence}
+- Event Depth: {causal_depth}
+- Key Intervention: {counterfactual_intervention}
+- Event Chain Confidence: {causal_confidence}
+
+BAYESIAN RISK OUTPUT:
+- Resolution Probability: {resolution_probability}
+- Risk Gap: {risk_gap}
+- Risk Level: {risk_level}
+- Regulatory Risk: {regulatory_risk}
 
 ROUTING OUTPUT:
 - Team: {assigned_team}
@@ -351,7 +368,8 @@ Respond with this exact JSON structure:
   "reasoning_trace": "<2-3 sentence summary of the full analysis chain and its quality>",
   "agent_confidences": {{
     "classifier": <0.0-1.0>,
-    "causal_analyst": <0.0-1.0>,
+    "event_chain": <0.0-1.0>,
+    "risk_analyzer": <0.0-1.0>,
     "router": <0.0-1.0>,
     "resolution": <0.0-1.0>
   }}

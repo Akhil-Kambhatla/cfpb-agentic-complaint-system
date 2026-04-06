@@ -40,6 +40,22 @@ export interface CausalAnalysisOutput {
   reasoning: string;
 }
 
+export interface RiskAnalysisOutput {
+  resolution_probability: number;
+  credible_interval_lower: number;
+  credible_interval_upper: number;
+  risk_gap: number;
+  regulatory_risk: number;
+  intervention_effect: number;
+  company_baseline: number;
+  posterior_std: number;
+  feature_contributions: Record<string, number>;
+  risk_level: "low" | "medium" | "high" | "critical";
+  recommended_action: string;
+  confidence: number;
+  reasoning: string;
+}
+
 export interface RoutingOutput {
   assigned_team: string;
   priority_level: "P1" | "P2" | "P3" | "P4";
@@ -68,7 +84,8 @@ export interface QualityCheckOutput {
 export interface PipelineOutput {
   complaint: ComplaintInput;
   classification: ClassificationOutput;
-  causal_analysis: CausalAnalysisOutput;
+  event_chain: CausalAnalysisOutput;
+  risk_analysis: RiskAnalysisOutput;
   routing: RoutingOutput;
   resolution: ResolutionOutput;
   quality_check: QualityCheckOutput;
@@ -76,7 +93,8 @@ export interface PipelineOutput {
 
 export type AgentName =
   | "classifier"
-  | "causal_analyst"
+  | "risk_analyzer"
+  | "event_chain"
   | "router"
   | "resolution"
   | "quality_check"

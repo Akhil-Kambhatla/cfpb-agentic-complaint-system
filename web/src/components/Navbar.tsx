@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Brain } from "lucide-react";
 
 const tabs = [
+  { href: "/about", label: "About" },
   { href: "/analyze", label: "Analyze" },
   { href: "/evaluation", label: "Evaluation" },
 ];
@@ -20,8 +21,8 @@ export default function Navbar() {
         left: 0,
         right: 0,
         zIndex: 50,
-        borderBottom: "1px solid rgba(255,255,255,0.08)",
-        background: "rgba(3,7,18,0.85)",
+        borderBottom: "1px solid #e5e7eb",
+        background: "rgba(255,255,255,0.95)",
         backdropFilter: "blur(12px)",
         height: "56px",
         display: "flex",
@@ -46,21 +47,21 @@ export default function Navbar() {
               width: 32,
               height: 32,
               borderRadius: 8,
-              background: "rgba(16,185,129,0.15)",
-              border: "1px solid rgba(16,185,129,0.35)",
+              background: "rgba(16,185,129,0.1)",
+              border: "1px solid rgba(16,185,129,0.3)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Brain style={{ width: 16, height: 16, color: "#10b981" }} />
+            <Brain style={{ width: 16, height: 16, color: "#059669" }} />
           </div>
           <div>
-            <p style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", lineHeight: 1.2 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#111827", lineHeight: 1.2 }}>
               CFPB Complaint Intelligence System
             </p>
-            <p style={{ fontSize: 10, color: "#64748b", lineHeight: 1.2 }}>
-              Multi-Agent AI with Causal Counterfactual Analysis
+            <p style={{ fontSize: 10, color: "#6b7280", lineHeight: 1.2 }}>
+              Multi-Agent Complaint Intelligence with Bayesian Risk Assessment
             </p>
           </div>
         </div>
@@ -68,7 +69,7 @@ export default function Navbar() {
         {/* Tabs */}
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           {tabs.map(({ href, label }) => {
-            const active = pathname === href || (href === "/analyze" && pathname === "/");
+            const active = pathname === href || (href === "/about" && pathname === "/");
             return (
               <Link key={href} href={href} style={{ textDecoration: "none" }}>
                 <div
@@ -77,11 +78,23 @@ export default function Navbar() {
                     borderRadius: 8,
                     fontSize: 13,
                     fontWeight: active ? 600 : 400,
-                    color: active ? "#f1f5f9" : "#94a3b8",
-                    background: active ? "rgba(255,255,255,0.08)" : "transparent",
-                    border: active ? "1px solid rgba(255,255,255,0.12)" : "1px solid transparent",
+                    color: active ? "#111827" : "#4b5563",
+                    background: active ? "#f3f4f6" : "transparent",
+                    border: active ? "1px solid #e5e7eb" : "1px solid transparent",
                     transition: "all 0.15s ease",
                     cursor: "pointer",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!active) {
+                      e.currentTarget.style.background = "#f9fafb";
+                      e.currentTarget.style.color = "#111827";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!active) {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.color = "#4b5563";
+                    }
                   }}
                 >
                   {label}

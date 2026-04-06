@@ -1,12 +1,12 @@
-"""Causal Analyst Agent — extracts causal DAGs and performs counterfactual analysis."""
+"""Event Chain Agent — extracts event sequences and performs Bayesian risk-informed analysis."""
 import logging
 
 from src.models.schemas import CausalAnalysisOutput, CausalEdge, ClassificationOutput, ComplaintInput
 from src.utils.llm import ask_claude_json
 from src.utils.prompts import (
-    CAUSAL_ANALYST_SYSTEM,
-    CAUSAL_ANALYST_USER_TEMPLATE,
-    CAUSAL_ANALYST_USER_TEMPLATE_SHORT,
+    EVENT_CHAIN_SYSTEM,
+    EVENT_CHAIN_USER_TEMPLATE,
+    EVENT_CHAIN_USER_TEMPLATE_SHORT,
 )
 
 logger = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ SHORT_NARRATIVE_THRESHOLD = 100
 _DEFAULT_EDGE = {
     "cause": "Unknown initiating event",
     "effect": "Consumer complaint filed",
-    "description": "Causal analysis unavailable",
+    "description": "Event chain analysis unavailable",
 }
 
 _DEFAULTS = {
@@ -26,26 +26,23 @@ _DEFAULTS = {
     "counterfactual_intervention": "If proper procedures had been followed, this complaint would not have occurred.",
     "prevention_recommendation": "Review internal processes for compliance with applicable regulations.",
     "confidence": 0.3,
-    "reasoning": "Causal analysis failed; defaults applied.",
+    "reasoning": "Event chain analysis failed; defaults applied.",
 }
 
 
-class CausalAnalystAgent:
-    """Extracts causal chain and counterfactual intervention from a complaint narrative."""
+class EventChainAgent:
+    """Extracts the event chain and key intervention point from a complaint narrative."""
 
     def run(
         self,
         complaint: ComplaintInput,
         classification: ClassificationOutput,
     ) -> CausalAnalysisOutput:
-        """Run causal analysis. Returns CausalAnalysisOutput."""
+        """Run event chain analysis. Returns CausalAnalysisOutput."""
         narrative = complaint.narrative[:3000]
         is_short = len(narrative.strip()) < SHORT_NARRATIVE_THRESHOLD
 
-        if is_short:
-            template = CAUSAL_ANALYST_USER_TEMPLATE_SHORT
-        else:
-            template = CAUSAL_ANALYST_USER_TEMPLATE
+        template = EVENT_CHAIN_USER_TEMPLATE_SHORT if is_short else EVENT_CHAIN_USER_TEMPLATE
 
         prompt = template.format(
             narrative=narrative,
@@ -55,8 +52,7 @@ class CausalAnalystAgent:
         )
 
         try:
-            data = ask_claude_json(prompt, system=CAUSAL_ANALYST_SYSTEM)
-            # Normalize causal_chain entries to CausalEdge dicts
+            data = ask_claude_json(prompt, system=EVENT_CHAIN_SYSTEM)
             chain = data.get("causal_chain", [_DEFAULT_EDGE])
             if not chain:
                 chain = [_DEFAULT_EDGE]
@@ -64,7 +60,7 @@ class CausalAnalystAgent:
             data.setdefault("causal_depth", len(chain))
             return CausalAnalysisOutput(**data)
         except Exception as exc:
-            logger.error(f"CausalAnalystAgent failed for complaint {complaint.complaint_id}: {exc}")
+            logger.error(f"EventChainAgent failed for complaint {complaint.complaint_id}: {exc}")
             return CausalAnalysisOutput(
                 causal_chain=[CausalEdge(**_DEFAULT_EDGE)],
                 root_cause=_DEFAULTS["root_cause"],
@@ -74,3 +70,7 @@ class CausalAnalystAgent:
                 confidence=_DEFAULTS["confidence"],
                 reasoning=_DEFAULTS["reasoning"],
             )
+
+
+# Backwards-compatible alias used by existing orchestrator imports during transition
+CausalAnalystAgent = EventChainAgent

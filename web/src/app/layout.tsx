@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "CFPB Complaint Intelligence System",
   description:
-    "Multi-Agent AI with Causal Counterfactual Analysis — UMD Agentic AI Challenge 2026",
+    "Multi-Agent Complaint Intelligence with Bayesian Risk Assessment — UMD Agentic AI Challenge 2026",
 };
 
 export default function RootLayout({
@@ -19,10 +19,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${inter.className} antialiased`}
-        style={{ background: "#030712", color: "#f1f5f9", minHeight: "100vh" }}
-      >
+      <body className={`${inter.className} antialiased`}>
         <AnalysisProvider>
           <Navbar />
           <main style={{ paddingTop: "56px" }}>{children}</main>

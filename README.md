@@ -2,7 +2,7 @@
 
 > 2026 UMD Agentic AI Challenge — Robert H. Smith School of Business
 
-A multi-agent AI system that processes consumer financial complaints using causal counterfactual analysis to not just classify complaints, but explain *why they happen* and *how to prevent them*.
+A multi-agent AI system that processes consumer financial complaints using Bayesian Risk Intelligence to not just classify complaints, but quantify *resolution probability*, identify *risk gaps*, and recommend *targeted interventions*.
 
 ## Problem
 
@@ -13,13 +13,14 @@ Financial service companies receive thousands of complaints that are inconsisten
 We built a **5-agent orchestrated pipeline** using LangGraph that goes beyond classification:
 
 1. **Classifier Agent** — Categorizes by product, issue, severity, and compliance risk
-2. **Causal Analyst Agent** — Constructs causal DAGs from narratives and performs counterfactual root cause analysis
-3. **Router Agent** — Assigns complaints to the right team with priority levels
-4. **Resolution Agent** — Generates remediation plans and regulatory-compliant response letters
-5. **Quality Agent** — Validates consistency and provides explainability traces
+2. **Bayesian Risk Analyzer** — Computes posterior resolution probability with credible intervals using a pre-trained Bayesian logistic regression model
+3. **Event Chain Agent** — Reconstructs the event sequence from the narrative and identifies the key risk-based intervention point
+4. **Router Agent** — Assigns complaints to the right team with priority levels driven by the Bayesian risk gap
+5. **Resolution Agent** — Generates remediation plans and regulatory-compliant response letters
+6. **Quality Agent** — Validates consistency and provides explainability traces
 
-### Key Differentiator: Causal Counterfactual Analysis
-Instead of just labeling complaints, our system answers: *"What would have had to be different for this complaint to not have occurred?"* — providing actionable prevention strategies.
+### Key Differentiator: Bayesian Risk Intelligence
+Instead of just labeling complaints, our system answers: *"What is the probability this complaint gets resolved, and what specific intervention will change that outcome?"* — combining probabilistic risk assessment with actionable prevention strategies.
 
 ## Quick Start
 

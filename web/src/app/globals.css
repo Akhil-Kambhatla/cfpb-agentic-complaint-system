@@ -1,22 +1,27 @@
 @import "tailwindcss";
 
 :root {
-  --background: #030712;
-  --foreground: #f1f5f9;
+  --background: #f9fafb;
+  --foreground: #111827;
+  --dot-color: rgba(107, 114, 128, 0.14);
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
+  background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px);
+  background-size: 20px 20px;
+  min-height: 100vh;
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar — light style */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: #0a0a0a; }
-::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #334155; }
+::-webkit-scrollbar-track { background: #f9fafb; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
-/* Textarea and input focus */
+/* Input focus ring */
 textarea:focus, input:focus {
-  box-shadow: 0 0 0 2px rgba(16,185,129,0.2);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
 }
