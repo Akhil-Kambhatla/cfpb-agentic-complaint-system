@@ -25,7 +25,7 @@ from src.agents.router import RouterAgent
 from src.data.company_stats import get_all_company_names, get_company_stats, get_top_companies
 from src.models.schemas import ComplaintInput
 from src.utils.cost_calculator import estimate_cost, estimate_roi
-from src.utils.slack import HIGH_RISK_THRESHOLD, send_slack_alert
+from src.utils.slack import HIGH_RISK_THRESHOLD, send_slack_alert, send_team_routing_alert
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -78,22 +78,30 @@ def _run_full_pipeline(complaint: ComplaintInput) -> dict:
     resolution = ResolutionAgent().run(complaint, classification, event_chain, routing, risk)
     quality = QualityCheckAgent().run(complaint, classification, event_chain, routing, resolution, risk)
 
-    # Send Slack alert for high-risk complaints
+    summary = {
+        "product": classification.predicted_product,
+        "issue": classification.predicted_issue,
+        "severity": classification.severity,
+        "risk_gap": risk.risk_gap,
+        "resolution_probability": risk.resolution_probability,
+        "resolution_ci": [risk.credible_interval_lower, risk.credible_interval_upper],
+        "assigned_team": routing.assigned_team,
+        "priority": routing.priority_level,
+        "company": complaint.company,
+        "narrative_preview": complaint.narrative[:300],
+        "remediation_steps": resolution.remediation_steps,
+        "applicable_regulations": resolution.applicable_regulations,
+    }
+
+    # Always send team routing alert
+    team_sent = send_team_routing_alert(summary, routing.assigned_team)
+
+    # Send high-risk alert to #cfpb-alerts if risk gap exceeds threshold
     slack_sent = False
     if risk.risk_gap > HIGH_RISK_THRESHOLD:
-        slack_sent = send_slack_alert({
-            "product": classification.predicted_product,
-            "severity": classification.severity,
-            "risk_gap": risk.risk_gap,
-            "resolution_probability": risk.resolution_probability,
-            "resolution_ci": [risk.credible_interval_lower, risk.credible_interval_upper],
-            "assigned_team": routing.assigned_team,
-            "priority": routing.priority_level,
-            "company": complaint.company,
-            "narrative_preview": complaint.narrative[:200],
-        })
+        slack_sent = send_slack_alert(summary)
         if slack_sent:
-            logger.info(f"Slack alert sent for high-risk complaint {complaint.complaint_id}")
+            logger.info(f"Slack high-risk alert sent for complaint {complaint.complaint_id}")
 
     return {
         "complaint": _safe_dict(complaint),
@@ -104,6 +112,7 @@ def _run_full_pipeline(complaint: ComplaintInput) -> dict:
         "resolution": _safe_dict(resolution),
         "quality_check": _safe_dict(quality),
         "slack_alert_sent": slack_sent,
+        "team_alert_sent": team_sent,
     }
 
 
@@ -191,6 +200,29 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
     async for event in emit("quality_check", "complete", _safe_dict(quality), elapsed):
         yield event
 
+    # Send Slack alerts after all agents complete
+    summary = {
+        "product": classification.predicted_product,
+        "issue": classification.predicted_issue,
+        "severity": classification.severity,
+        "risk_gap": risk.risk_gap,
+        "resolution_probability": risk.resolution_probability,
+        "resolution_ci": [risk.credible_interval_lower, risk.credible_interval_upper],
+        "assigned_team": routing.assigned_team,
+        "priority": routing.priority_level,
+        "company": complaint.company,
+        "narrative_preview": complaint.narrative[:300],
+        "remediation_steps": resolution.remediation_steps,
+        "applicable_regulations": resolution.applicable_regulations,
+    }
+
+    team_sent = await loop.run_in_executor(
+        None, lambda: send_team_routing_alert(summary, routing.assigned_team)
+    )
+    slack_sent = False
+    if risk.risk_gap > HIGH_RISK_THRESHOLD:
+        slack_sent = await loop.run_in_executor(None, lambda: send_slack_alert(summary))
+
     # Final complete event
     full_result = {
         "complaint": _safe_dict(complaint),
@@ -200,6 +232,8 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
         "routing": _safe_dict(routing),
         "resolution": _safe_dict(resolution),
         "quality_check": _safe_dict(quality),
+        "slack_alert_sent": slack_sent,
+        "team_alert_sent": team_sent,
     }
     async for event in emit("pipeline", "complete", full_result):
         yield event

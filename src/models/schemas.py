@@ -138,3 +138,4 @@ class PipelineOutput(BaseModel):
     resolution: ResolutionOutput
     quality_check: QualityCheckOutput
     slack_alert_sent: bool = False
+    team_alert_sent: bool = False

@@ -2,8 +2,8 @@
 
 import { motion } from "framer-motion";
 import {
-  Brain, GitBranch, Shield, Database, Cpu, Users, Trophy, ArrowRight,
-  AlertTriangle, CheckCircle2, Zap, BookOpen,
+  GitBranch, Shield, Database, Trophy, ArrowRight,
+  AlertTriangle, CheckCircle2, Zap, BookOpen, MessageSquare,
 } from "lucide-react";
 
 // ─── Section wrapper ──────────────────────────────────────────────────────────
@@ -80,6 +80,95 @@ function TechBadge({ name, tag }: { name: string; tag: string }) {
   );
 }
 
+// ─── Mock Slack message ───────────────────────────────────────────────────────
+function SlackMockup({ channel, type }: { channel: string; type: "team" | "alert" }) {
+  const isAlert = type === "alert";
+  const color = isAlert ? "#e11d48" : "#0284c7";
+  const icon = isAlert ? "⚠️" : "📋";
+  const title = isAlert ? "High-Risk Complaint Detected" : "New Complaint Routed to Your Team";
+
+  return (
+    <div style={{
+      borderRadius: 10, border: "1px solid #e5e7eb",
+      background: "#ffffff", overflow: "hidden",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+    }}>
+      {/* Slack-style header bar */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "10px 14px", background: "#f8fafc",
+        borderBottom: "1px solid #e5e7eb",
+      }}>
+        <div style={{
+          width: 16, height: 16, borderRadius: 3,
+          background: "#4a154b",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <span style={{ fontSize: 9, color: "#fff", fontWeight: 800 }}>S</span>
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#1d1c1d" }}>#{channel}</span>
+      </div>
+
+      {/* Message body */}
+      <div style={{ padding: "12px 14px" }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          {/* Avatar */}
+          <div style={{
+            width: 28, height: 28, borderRadius: 6, flexShrink: 0,
+            background: "#10b981", display: "flex", alignItems: "center",
+            justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff",
+          }}>
+            AI
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#1d1c1d" }}>CFPB Intelligence</span>
+              <span style={{ fontSize: 10, color: "#9ca3af" }}>Today at 2:14 PM</span>
+            </div>
+
+            {/* Attachment */}
+            <div style={{
+              borderLeft: `4px solid ${color}`,
+              borderRadius: "0 8px 8px 0",
+              background: "#fafafa",
+              border: `1px solid ${color}30`,
+              borderLeftColor: color,
+              padding: "10px 12px",
+            }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: "#1d1c1d", margin: "0 0 8px" }}>
+                {icon} {title}
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
+                {isAlert ? (
+                  <>
+                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Product: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#374151" }}>Credit Card</span></div>
+                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Severity: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#b91c1c" }}>CRITICAL</span></div>
+                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Risk Gap: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#c2410c" }}>+34%</span></div>
+                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Resolution: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#374151" }}>28% (CI: 18%–41%)</span></div>
+                  </>
+                ) : (
+                  <>
+                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Priority: </span><span style={{ fontSize: 10, fontWeight: 700, color: "#b91c1c" }}>🔴 P1</span></div>
+                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Product: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#374151" }}>Debt Collection</span></div>
+                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Severity: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#374151" }}>HIGH</span></div>
+                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Company: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#374151" }}>Equifax</span></div>
+                  </>
+                )}
+              </div>
+              <p style={{ fontSize: 10, color: "#6b7280", marginTop: 8, fontStyle: "italic" }}>
+                &ldquo;I keep receiving calls about a debt I already paid in full…&rdquo;
+              </p>
+              <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
+                Assigned via CFPB Complaint Intelligence System
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function AboutPage() {
   return (
@@ -101,7 +190,7 @@ export default function AboutPage() {
           </div>
 
           <h1 style={{ fontSize: 36, fontWeight: 800, color: "#111827", margin: "0 0 16px", lineHeight: 1.2 }}>
-            CFPB Complaint Intelligence System
+            Multi-Agent Complaint Intelligence with Bayesian Risk Assessment
           </h1>
           <p style={{ fontSize: 16, color: "#4b5563", maxWidth: 680, margin: "0 auto", lineHeight: 1.7 }}>
             A multi-agent AI system that classifies, analyzes, routes, and resolves consumer
@@ -111,7 +200,7 @@ export default function AboutPage() {
 
           <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 28, flexWrap: "wrap" }}>
             <StatCard value="70%" label="Product accuracy" color="#10b981" />
-            <StatCard value="5" label="Specialized agents" color="#0ea5e9" />
+            <StatCard value="6" label="Specialized agents" color="#0ea5e9" />
             <StatCard value="8.4s" label="Avg pipeline latency" color="#8b5cf6" />
             <StatCard value="11" label="Product categories" color="#f59e0b" />
           </div>
@@ -143,10 +232,10 @@ export default function AboutPage() {
                 <BookOpen style={{ width: 18, height: 18, color: "#d97706" }} />
               </div>
               <div>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 8px" }}>No Root Cause Analysis</h3>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 8px" }}>Hidden Resolution Risk</h3>
                 <p style={{ fontSize: 12, color: "#4b5563", lineHeight: 1.7, margin: 0 }}>
-                  Existing classifiers only answer "what" a complaint is about, not "why" it happened
-                  or how to prevent it. This misses the opportunity to fix systemic issues upstream.
+                  Existing classifiers only label "what" a complaint is about. They miss which complaints are
+                  at risk of being dismissed despite high regulatory exposure — the dangerous gap.
                 </p>
               </div>
             </div>
@@ -191,15 +280,15 @@ export default function AboutPage() {
           <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.7, margin: "0 0 20px" }}>
             We built a <strong>LangGraph-orchestrated multi-agent pipeline</strong> where each agent is a
             specialist. The orchestrator routes outputs from one agent to the next, building a cumulative
-            evidence chain across five stages.
+            evidence chain across six stages.
           </p>
 
-          {/* Pipeline flow */}
           <div style={{ display: "flex", alignItems: "center", gap: 0, flexWrap: "wrap", justifyContent: "center" }}>
             {[
               { label: "Complaint Input", color: "#0ea5e9" },
               { label: "Classifier", color: "#0ea5e9" },
-              { label: "Causal Analyst", color: "#8b5cf6" },
+              { label: "Risk Analyzer", color: "#8b5cf6" },
+              { label: "Event Chain", color: "#f97316" },
               { label: "Router", color: "#f97316" },
               { label: "Resolution", color: "#10b981" },
               { label: "Quality Check", color: "#ec4899" },
@@ -232,36 +321,36 @@ export default function AboutPage() {
             desc="Classifies product, issue, severity, and compliance risk from the raw narrative using structured LLM output and few-shot examples from CFPB categories."
           />
           <AgentPill
-            name="Causal Analyst Agent"
+            name="Bayesian Risk Analyzer"
             color="#8b5cf6"
-            desc="Extracts a directed acyclic graph (DAG) of events and answers counterfactual questions: 'What intervention would have prevented this complaint?'"
+            desc="Computes posterior resolution probability with calibrated credible intervals, identifies risk gap vs. product baseline, and recommends the highest-impact intervention."
+          />
+          <AgentPill
+            name="Event Chain Agent"
+            color="#f97316"
+            desc="Reconstructs the sequence of events from the complaint narrative — identifying the root cause, causal chain, and the prevention step that would have stopped the complaint."
           />
           <AgentPill
             name="Router Agent"
-            color="#f97316"
-            desc="Assigns complaints to the correct internal team (compliance, legal, fraud, etc.) with priority level using hybrid rule-based + LLM reasoning."
+            color="#10b981"
+            desc="Assigns complaints to the correct internal team (compliance, legal, fraud, etc.) with priority level using hybrid rule-based + LLM reasoning, then alerts the team via Slack."
           />
           <AgentPill
             name="Resolution Agent"
-            color="#10b981"
+            color="#ec4899"
             desc="Generates regulation-specific remediation steps and a regulatory-compliant customer response letter citing TILA, FCRA, FDCPA, or CFPA as applicable."
           />
           <AgentPill
             name="Quality Check Agent"
-            color="#ec4899"
-            desc="Validates consistency across all agents, computes per-agent confidence scores, and flags cases requiring human review when confidence falls below 70%."
-          />
-          <AgentPill
-            name="Orchestrator (LangGraph)"
             color="#6b7280"
-            desc="StateGraph supervisor that coordinates agent execution, manages shared state, handles errors, and streams reasoning events to the frontend via SSE."
+            desc="Validates consistency across all agents, computes per-agent confidence scores, and flags cases requiring human review when overall confidence falls below 70%."
           />
         </div>
       </PageSection>
 
       {/* ── 5. Differentiator ────────────────────────────────────────────────── */}
       <PageSection delay={0.12}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Our Differentiator</h2>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>What Makes Us Different</h2>
         <Card style={{ borderLeft: "5px solid #8b5cf6", background: "linear-gradient(135deg, #faf5ff 0%, #ffffff 100%)" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
             <div style={{ width: 40, height: 40, borderRadius: 10, background: "#ede9fe", border: "1px solid #c4b5fd", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -272,17 +361,18 @@ export default function AboutPage() {
                 Bayesian Risk Intelligence
               </h3>
               <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.7, margin: "0 0 14px" }}>
-                Most teams submit classifiers. We go further: our Event Chain agent reconstructs the
-                event sequence from each complaint narrative. Then our Bayesian Risk Analyzer computes
-                a posterior resolution probability with credible intervals, identifies the risk gap
-                vs. the product baseline, and recommends the specific risk-based intervention most
-                likely to improve the outcome.
+                Most teams submit classifiers. We go further: our Bayesian Risk Analyzer computes a
+                posterior resolution probability with calibrated credible intervals using features derived
+                from 1.5 million CFPB complaints. We identify the <em>risk gap</em> — complaints with
+                high regulatory exposure but low resolution probability — the cases most likely to be
+                wrongly dismissed. Product type is the dominant predictor, explaining over 60% of outcome
+                variance across product categories.
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                 {[
-                  { icon: CheckCircle2, color: "#10b981", title: "Event Chain", desc: "Events reconstructed as a sequence from narrative evidence" },
-                  { icon: CheckCircle2, color: "#10b981", title: "Risk-Based Intervention", desc: "Bayesian posterior identifies highest-impact risk intervention" },
-                  { icon: CheckCircle2, color: "#10b981", title: "Prevention Plan", desc: "Actionable recommendation to avoid recurrence" },
+                  { icon: CheckCircle2, color: "#10b981", title: "Calibrated Uncertainty", desc: "Posterior credible intervals — not just a point estimate — for honest risk communication" },
+                  { icon: CheckCircle2, color: "#10b981", title: "Risk Gap Analysis", desc: "Identifies dangerously dismissed complaints: high regulatory risk, low resolution probability" },
+                  { icon: CheckCircle2, color: "#10b981", title: "Real-Time Slack Routing", desc: "When pipeline completes, assigned team gets an instant alert with full context and remediation steps" },
                 ].map(({ icon: Icon, color, title, desc }) => (
                   <div key={title} style={{ borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa", padding: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
@@ -298,7 +388,61 @@ export default function AboutPage() {
         </Card>
       </PageSection>
 
-      {/* ── 6. Data ──────────────────────────────────────────────────────────── */}
+      {/* ── 6. Live Integration ──────────────────────────────────────────────── */}
+      <PageSection delay={0.13}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Live Integration</h2>
+        <Card>
+          <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.7, margin: "0 0 20px" }}>
+            When a complaint is processed, the system automatically routes a Slack notification to the assigned team.
+            If the complaint exceeds the high-risk threshold (risk gap &gt; 20%), a second alert is sent to the
+            compliance oversight channel <strong>#cfpb-alerts</strong>.
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>
+                Team Channel (always sent)
+              </p>
+              <SlackMockup channel="team-billing-disputes" type="team" />
+            </div>
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>
+                Oversight Channel (high-risk only)
+              </p>
+              <SlackMockup channel="cfpb-alerts" type="alert" />
+            </div>
+          </div>
+
+          {/* Team channel mapping */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 10 }}>Team Channel Routing</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            {[
+              { team: "compliance", channel: "#team-compliance" },
+              { team: "billing_disputes", channel: "#team-billing-disputes" },
+              { team: "fraud", channel: "#team-fraud" },
+              { team: "customer_service", channel: "#team-customer-service" },
+              { team: "legal", channel: "#team-legal" },
+              { team: "executive_escalation", channel: "#team-executive-escalation" },
+            ].map(({ team, channel }) => (
+              <div key={team} style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "8px 12px", borderRadius: 8,
+                background: "#f9fafb", border: "1px solid #f3f4f6",
+              }}>
+                <MessageSquare style={{ width: 12, height: 12, color: "#4a154b", flexShrink: 0 }} />
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: "#111827", margin: 0 }}>
+                    {team.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                  </p>
+                  <p style={{ fontSize: 10, color: "#6b7280", margin: 0 }}>{channel}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </PageSection>
+
+      {/* ── 7. Data ──────────────────────────────────────────────────────────── */}
       <PageSection delay={0.14}>
         <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Data</h2>
         <Card>
@@ -331,7 +475,7 @@ export default function AboutPage() {
         </Card>
       </PageSection>
 
-      {/* ── 7. Tech Stack ────────────────────────────────────────────────────── */}
+      {/* ── 8. Tech Stack ────────────────────────────────────────────────────── */}
       <PageSection delay={0.16}>
         <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Tech Stack</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
@@ -339,10 +483,10 @@ export default function AboutPage() {
             { name: "LangGraph", tag: "Agent orchestration" },
             { name: "Claude Sonnet 4.6", tag: "LLM backbone" },
             { name: "FastAPI + SSE", tag: "Streaming backend" },
-            { name: "Next.js 15", tag: "React frontend" },
+            { name: "Next.js 16", tag: "React frontend" },
             { name: "Framer Motion", tag: "UI animations" },
             { name: "Recharts", tag: "Data visualization" },
-            { name: "NetworkX", tag: "Causal DAG construction" },
+            { name: "Slack Webhooks", tag: "Real-time team routing" },
             { name: "Pydantic v2", tag: "Typed agent I/O" },
             { name: "scikit-learn", tag: "Evaluation metrics" },
             { name: "pandas", tag: "Data processing" },
@@ -354,7 +498,7 @@ export default function AboutPage() {
         </div>
       </PageSection>
 
-      {/* ── 8. Competition ───────────────────────────────────────────────────── */}
+      {/* ── 9. Competition ───────────────────────────────────────────────────── */}
       <PageSection delay={0.18}>
         <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Competition</h2>
         <Card style={{ background: "linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%)", borderLeft: "5px solid #10b981" }}>
@@ -369,9 +513,9 @@ export default function AboutPage() {
               <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 14px" }}>Robert H. Smith School of Business · April 2026</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                 {[
-                  { label: "Novelty", desc: "Causal counterfactual analysis — unique among submitted systems" },
-                  { label: "Methodology", desc: "Multi-agent LangGraph with structured I/O and confidence scores" },
-                  { label: "Clarity", desc: "Fully explainable decisions with per-agent reasoning traces" },
+                  { label: "Novelty", desc: "Bayesian risk intelligence with calibrated uncertainty — identifies dangerously dismissed complaints that classifiers miss" },
+                  { label: "Methodology", desc: "Multi-agent LangGraph with structured I/O, confidence scores, and live Slack integration for team routing" },
+                  { label: "Clarity", desc: "Fully explainable decisions with per-agent reasoning traces, feature effects, and human review flags" },
                 ].map(({ label, desc }) => (
                   <div key={label} style={{ borderRadius: 10, border: "1px solid #d1fae5", background: "#f0fdf4", padding: 12 }}>
                     <p style={{ fontSize: 11, fontWeight: 700, color: "#047857", margin: "0 0 5px", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</p>

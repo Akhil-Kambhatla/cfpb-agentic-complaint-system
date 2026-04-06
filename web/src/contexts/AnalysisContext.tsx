@@ -55,6 +55,8 @@ interface AnalysisContextType {
   qualityCheck: QualityCheckOutput | null;
 
   totalTime: number | null;
+  slackAlertSent: boolean | null;
+  teamAlertSent: boolean | null;
 
   handleAnalyze: () => Promise<void>;
   resetAnalysis: () => void;
@@ -156,6 +158,8 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
     null
   );
   const [totalTime, setTotalTime] = useState<number | null>(null);
+  const [slackAlertSent, setSlackAlertSent] = useState<boolean | null>(null);
+  const [teamAlertSent, setTeamAlertSent] = useState<boolean | null>(null);
 
   const addLog = useCallback(
     (agent: string, message: string, type: LogEntry["type"] = "info") => {
@@ -176,6 +180,8 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
     setLog([]);
     setPhase("idle");
     setTotalTime(null);
+    setSlackAlertSent(null);
+    setTeamAlertSent(null);
   }, []);
 
   const handleAnalyze = useCallback(async () => {
@@ -233,6 +239,22 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
             const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
             setTotalTime(parseFloat(elapsed));
             addLog("System", `Pipeline complete in ${elapsed} seconds`, "success");
+
+            const pipelineResult = event.result as Record<string, unknown> | undefined;
+            const slackSent = (pipelineResult?.slack_alert_sent as boolean) ?? false;
+            const teamSent = (pipelineResult?.team_alert_sent as boolean) ?? false;
+            setSlackAlertSent(slackSent);
+            setTeamAlertSent(teamSent);
+
+            const assignedTeam = ((pipelineResult?.routing as Record<string, unknown>)?.assigned_team as string) ?? "";
+            if (teamSent && assignedTeam) {
+              const channel = `team-${assignedTeam.replace(/_/g, "-")}`;
+              addLog("Router", `Alert sent to #${channel}`, "success");
+            }
+            if (slackSent) {
+              addLog("Quality Check", "⚠️ High-risk alert sent to #cfpb-alerts", "warning");
+            }
+
             setPhase("complete");
           }
         } else if (event.status === "error") {
@@ -267,6 +289,8 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
         resolution,
         qualityCheck,
         totalTime,
+        slackAlertSent,
+        teamAlertSent,
         handleAnalyze,
         resetAnalysis,
       }}

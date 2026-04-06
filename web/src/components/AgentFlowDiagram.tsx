@@ -114,9 +114,11 @@ const TEAMS = [
 // ─── Main component ───────────────────────────────────────────────────────────
 interface Props {
   agentStates: Record<string, AgentState>;
+  teamAlertSent?: boolean;
+  slackAlertSent?: boolean;
 }
 
-export default function AgentFlowDiagram({ agentStates }: Props) {
+export default function AgentFlowDiagram({ agentStates, teamAlertSent, slackAlertSent }: Props) {
   const [particleKeys, setParticleKeys] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -240,7 +242,7 @@ export default function AgentFlowDiagram({ agentStates }: Props) {
 
       <RiskNode state={agentStates["risk_analyzer"] ?? { status: "idle" }} />
       <EventChainNode state={agentStates["event_chain"] ?? { status: "idle" }} />
-      <RouterNode state={agentStates["router"] ?? { status: "idle" }} />
+      <RouterNode state={agentStates["router"] ?? { status: "idle" }} teamAlertSent={teamAlertSent} />
 
       <StandardNode
         nodeKey="resolution"
@@ -257,6 +259,7 @@ export default function AgentFlowDiagram({ agentStates }: Props) {
         Icon={ShieldCheck}
         state={agentStates["quality_check"] ?? { status: "idle" }}
         enterDelay={0.22}
+        slackAlertSent={slackAlertSent}
       />
     </div>
   );
@@ -305,9 +308,10 @@ interface StandardNodeProps {
   Icon: React.ElementType;
   state: AgentState;
   enterDelay: number;
+  slackAlertSent?: boolean;
 }
 
-function StandardNode({ nodeKey, label, subLabel, Icon, state, enterDelay }: StandardNodeProps) {
+function StandardNode({ nodeKey, label, subLabel, Icon, state, enterDelay, slackAlertSent }: StandardNodeProps) {
   const n = NODES[nodeKey];
   const c = COLORS[state.status] ?? COLORS.idle;
 
@@ -366,6 +370,21 @@ function StandardNode({ nodeKey, label, subLabel, Icon, state, enterDelay }: Sta
           {statusText}
         </p>
       </div>
+      {slackAlertSent && state.status === "complete" && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.3 }}
+          title="⚠️ High-risk alert sent to #cfpb-alerts"
+          style={{
+            fontSize: 14, flexShrink: 0, cursor: "default",
+            padding: "2px 6px", borderRadius: 6,
+            background: "#fff7ed", border: "1px solid #fdba74",
+          }}
+        >
+          💬
+        </motion.div>
+      )}
     </motion.div>
   );
 }
@@ -514,7 +533,7 @@ function EventChainNode({ state }: { state: AgentState }) {
 }
 
 // ─── Router Node ──────────────────────────────────────────────────────────────
-function RouterNode({ state }: { state: AgentState }) {
+function RouterNode({ state, teamAlertSent }: { state: AgentState; teamAlertSent?: boolean }) {
   const n = NODES.router;
   const c = COLORS[state.status] ?? COLORS.idle;
   const result = state.result as RoutingOutput | undefined;
@@ -587,13 +606,27 @@ function RouterNode({ state }: { state: AgentState }) {
                 transition: "all 0.4s ease",
                 display: "flex",
                 alignItems: "center",
+                justifyContent: "space-between",
                 gap: 6,
               }}
             >
-              {isSelected && (
-                <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#10b981", flexShrink: 0 }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {isSelected && (
+                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#10b981", flexShrink: 0 }} />
+                )}
+                {team.replace(/_/g, " ")}
+              </div>
+              {isSelected && teamAlertSent && (
+                <motion.span
+                  initial={{ opacity: 0, scale: 0 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.4 }}
+                  title={`Alert sent to #team-${team.replace(/_/g, "-")}`}
+                  style={{ fontSize: 11, flexShrink: 0 }}
+                >
+                  💬
+                </motion.span>
               )}
-              {team.replace(/_/g, " ")}
             </div>
           );
         })}

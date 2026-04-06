@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown,
@@ -19,6 +19,8 @@ import {
   Home,
   Landmark,
   Banknote,
+  BarChart2,
+  Upload,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useAnalysis } from "@/contexts/AnalysisContext";
@@ -33,6 +35,8 @@ import {
 import QualityBadge from "@/components/QualityBadge";
 import ReasoningLog from "@/components/ReasoningLog";
 import RiskDashboard from "@/components/RiskDashboard";
+import RiskAssessmentPanel from "@/components/RiskAssessmentPanel";
+import BatchUpload from "@/components/BatchUpload";
 
 const AgentFlowDiagram = dynamic(
   () => import("@/components/AgentFlowDiagram"),
@@ -113,7 +117,7 @@ const resultsContainer = {
   },
 };
 const resultItem = {
-  hidden: { opacity: 0, y: 16 },
+  hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
@@ -137,18 +141,33 @@ export default function AnalyzePage() {
     resolution,
     qualityCheck,
     totalTime,
+    slackAlertSent,
+    teamAlertSent,
     handleAnalyze,
     resetAnalysis,
   } = useAnalysis();
 
   const [inputCollapsed, setInputCollapsed] = useState(false);
   const [metaOpen, setMetaOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [resultsVisible, setResultsVisible] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   const isRunning = phase === "running";
   const isComplete = phase === "complete";
   const hasStarted = phase !== "idle";
-  const showResults = isComplete;
+
+  // Delay showing results until pipeline animation fully completes
+  useEffect(() => {
+    if (isComplete) {
+      const timer = setTimeout(() => {
+        setResultsVisible(true);
+      }, 700);
+      return () => clearTimeout(timer);
+    } else {
+      setResultsVisible(false);
+    }
+  }, [isComplete]);
 
   const loadSample = (id: string) => {
     const s = SAMPLES.find((x) => x.id === id);
@@ -161,16 +180,19 @@ export default function AnalyzePage() {
 
   const handleSubmit = async () => {
     setInputCollapsed(true);
+    setBatchOpen(false);
     await handleAnalyze();
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 500);
+    }, 1400);
   };
 
   const handleReset = () => {
     resetAnalysis();
     setInputCollapsed(false);
     setMetaOpen(false);
+    setResultsVisible(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const card = {
@@ -427,7 +449,11 @@ export default function AnalyzePage() {
                 </motion.span>
               )}
             </div>
-            <AgentFlowDiagram agentStates={agentStates} />
+            <AgentFlowDiagram
+              agentStates={agentStates}
+              teamAlertSent={teamAlertSent ?? undefined}
+              slackAlertSent={slackAlertSent ?? undefined}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -445,10 +471,10 @@ export default function AnalyzePage() {
         )}
       </AnimatePresence>
 
-      {/* ── SECTIONS E+: Results (after pipeline completes) ──────────────────── */}
+      {/* ── SECTIONS E+: Results (after pipeline animation fully completes) ───── */}
       <div ref={resultsRef}>
         <AnimatePresence>
-          {showResults && (
+          {resultsVisible && (
             <motion.div
               key="all-results"
               variants={resultsContainer}
@@ -456,6 +482,25 @@ export default function AnalyzePage() {
               animate="visible"
               style={{ display: "flex", flexDirection: "column", gap: 16 }}
             >
+              {/* ← New Analysis button */}
+              <motion.div variants={resultItem} style={{ display: "flex", justifyContent: "flex-end" }}>
+                <motion.button
+                  whileHover={{ scale: 1.02, background: "#f3f4f6" }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleReset}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "7px 14px", borderRadius: 8,
+                    border: "1px solid #e5e7eb", background: "#ffffff",
+                    color: "#374151", fontSize: 12, fontWeight: 500,
+                    cursor: "pointer", transition: "all 0.15s ease",
+                  }}
+                >
+                  <RefreshCw style={{ width: 12, height: 12 }} />
+                  ← New Analysis
+                </motion.button>
+              </motion.div>
+
               {/* Human-in-the-loop banner */}
               {isLowConfidence && (
                 <motion.div variants={resultItem}>
@@ -478,18 +523,18 @@ export default function AnalyzePage() {
                         Human Review Recommended
                       </p>
                       <p style={{ fontSize: 12, color: "#78350f", marginTop: 4, lineHeight: 1.6 }}>
-                        Overall pipeline confidence is <strong>{qualityCheck ? Math.round(qualityCheck.overall_confidence * 100) : "—"}%</strong>, below the 70% threshold. One or more agents returned low-confidence outputs. A compliance reviewer should verify these classifications before routing or responding.
+                        Overall pipeline confidence is <strong>{qualityCheck ? Math.round(qualityCheck.overall_confidence * 100) : "—"}%</strong>, below the 70% threshold. A compliance reviewer should verify these classifications before routing or responding.
                       </p>
                     </div>
                   </div>
                 </motion.div>
               )}
 
-              {/* Risk Dashboard */}
+              {/* Risk Dashboard (top metrics) */}
               {classification && (
                 <motion.div variants={resultItem}>
                   <p style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-                    Risk Assessment
+                    Risk Dashboard
                   </p>
                   <RiskDashboard
                     classification={classification}
@@ -498,28 +543,6 @@ export default function AnalyzePage() {
                   />
                 </motion.div>
               )}
-
-              {/* Detailed results label */}
-              <motion.div variants={resultItem} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  Detailed Results
-                </p>
-                <motion.button
-                  whileHover={{ scale: 1.02, background: "#f3f4f6" }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={handleReset}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "6px 12px", borderRadius: 8,
-                    border: "1px solid #e5e7eb", background: "#ffffff",
-                    color: "#4b5563", fontSize: 11, cursor: "pointer",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <RefreshCw style={{ width: 11, height: 11 }} />
-                  New Analysis
-                </motion.button>
-              </motion.div>
 
               {/* Classification */}
               {classification && (
@@ -539,6 +562,18 @@ export default function AnalyzePage() {
                     }
                   >
                     <ClassifierCard data={classification} />
+                  </AgentCardWrapper>
+                </motion.div>
+              )}
+
+              {/* Risk Assessment Panel */}
+              {riskAnalysis && (
+                <motion.div variants={resultItem}>
+                  <AgentCardWrapper title="Risk Assessment" icon={BarChart2}>
+                    <RiskAssessmentPanel
+                      riskAnalysis={riskAnalysis}
+                      company={company || null}
+                    />
                   </AgentCardWrapper>
                 </motion.div>
               )}
@@ -598,6 +633,56 @@ export default function AnalyzePage() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* ── SECTION: Batch Processing ──────────────────────────────────────────── */}
+      <div style={{
+        borderRadius: 16, border: "1px solid #e5e7eb",
+        background: "#ffffff", boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+      }}>
+        <button
+          onClick={() => setBatchOpen(!batchOpen)}
+          style={{
+            width: "100%", display: "flex", alignItems: "center",
+            justifyContent: "space-between", padding: "16px 20px",
+            background: "transparent", border: "none", cursor: "pointer",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 7,
+              background: "#f0f9ff", border: "1px solid #bae6fd",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Upload style={{ width: 13, height: 13, color: "#0284c7" }} />
+            </div>
+            <div style={{ textAlign: "left" }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "#111827", margin: 0 }}>Batch Processing</p>
+              <p style={{ fontSize: 11, color: "#6b7280", margin: 0 }}>Upload a CSV to analyze up to 20 complaints at once</p>
+            </div>
+          </div>
+          {batchOpen ? (
+            <ChevronUp style={{ width: 15, height: 15, color: "#9ca3af" }} />
+          ) : (
+            <ChevronDown style={{ width: 15, height: 15, color: "#9ca3af" }} />
+          )}
+        </button>
+
+        <AnimatePresence>
+          {batchOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              style={{ overflow: "hidden" }}
+            >
+              <div style={{ padding: "0 20px 20px" }}>
+                <BatchUpload />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
     </div>
   );
 }

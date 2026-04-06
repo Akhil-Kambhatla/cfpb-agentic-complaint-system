@@ -48,6 +48,7 @@ export interface RiskAnalysisOutput {
   regulatory_risk: number;
   intervention_effect: number;
   company_baseline: number;
+  company_resolution_rate?: number | null;
   posterior_std: number;
   feature_contributions: Record<string, number>;
   risk_level: "low" | "medium" | "high" | "critical";
@@ -89,6 +90,8 @@ export interface PipelineOutput {
   routing: RoutingOutput;
   resolution: ResolutionOutput;
   quality_check: QualityCheckOutput;
+  slack_alert_sent?: boolean;
+  team_alert_sent?: boolean;
 }
 
 export type AgentName =

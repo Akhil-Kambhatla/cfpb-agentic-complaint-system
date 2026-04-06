@@ -13,6 +13,16 @@ logger = logging.getLogger(__name__)
 SLACK_WEBHOOK_URL: Optional[str] = os.getenv("SLACK_WEBHOOK_URL")
 HIGH_RISK_THRESHOLD: float = float(os.getenv("SLACK_RISK_THRESHOLD", "0.2"))
 
+# Per-team Slack webhook URLs
+TEAM_WEBHOOK_MAP: dict[str, Optional[str]] = {
+    "compliance": os.getenv("SLACK_WEBHOOK_COMPLIANCE"),
+    "billing_disputes": os.getenv("SLACK_WEBHOOK_BILLING_DISPUTES"),
+    "fraud": os.getenv("SLACK_WEBHOOK_FRAUD"),
+    "customer_service": os.getenv("SLACK_WEBHOOK_CUSTOMER_SERVICE"),
+    "legal": os.getenv("SLACK_WEBHOOK_LEGAL"),
+    "executive_escalation": os.getenv("SLACK_WEBHOOK_EXECUTIVE_ESCALATION"),
+}
+
 
 def send_slack_alert(complaint_summary: dict) -> bool:
     """Send a Slack Block Kit alert for a high-risk complaint.
@@ -113,4 +123,116 @@ def send_slack_alert(complaint_summary: dict) -> bool:
         return True
     except Exception as exc:
         logger.error(f"Failed to send Slack alert: {exc}")
+        return False
+
+
+def send_team_routing_alert(complaint_summary: dict, assigned_team: str) -> bool:
+    """Send a routing notification to the specific team's Slack channel.
+
+    Args:
+        complaint_summary: dict with keys: product, issue, severity, risk_gap,
+            resolution_probability, resolution_ci, priority, company,
+            narrative_preview, remediation_steps, applicable_regulations
+        assigned_team: team key, e.g. "billing_disputes"
+
+    Returns:
+        True if the alert was sent successfully, False otherwise.
+    """
+    webhook_url = TEAM_WEBHOOK_MAP.get(assigned_team)
+    if not webhook_url:
+        logger.warning(f"No Slack webhook configured for team '{assigned_team}' — skipping team alert")
+        return False
+
+    product = complaint_summary.get("product", "Unknown")
+    issue = complaint_summary.get("issue", "Unknown")
+    severity = (complaint_summary.get("severity") or "unknown").upper()
+    risk_gap = complaint_summary.get("risk_gap", 0.0)
+    resolution_prob = complaint_summary.get("resolution_probability", 0.0)
+    ci = complaint_summary.get("resolution_ci", [0.0, 0.0])
+    ci_low = ci[0] if isinstance(ci, (list, tuple)) and len(ci) >= 2 else 0.0
+    ci_high = ci[1] if isinstance(ci, (list, tuple)) and len(ci) >= 2 else 0.0
+    priority = complaint_summary.get("priority", "P3")
+    company = complaint_summary.get("company") or "Not specified"
+    narrative_preview = (complaint_summary.get("narrative_preview") or "")[:300]
+    remediation_steps: list[str] = complaint_summary.get("remediation_steps") or []
+    applicable_regulations: list[str] = complaint_summary.get("applicable_regulations") or []
+
+    is_urgent = priority in ("P1", "P2")
+    color = "#e11d48" if is_urgent else "#0284c7"
+    priority_emoji = {"P1": "🔴", "P2": "🟠", "P3": "🟡", "P4": "🟢"}.get(priority, "🟡")
+
+    steps_text = (
+        "\n".join(f"{i + 1}. {step}" for i, step in enumerate(remediation_steps[:5]))
+        if remediation_steps else "No steps generated"
+    )
+    regs_text = ", ".join(applicable_regulations) if applicable_regulations else "None identified"
+
+    payload = {
+        "attachments": [
+            {
+                "color": color,
+                "blocks": [
+                    {
+                        "type": "header",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "📋 New Complaint Routed to Your Team",
+                            "emoji": True,
+                        },
+                    },
+                    {
+                        "type": "section",
+                        "fields": [
+                            {"type": "mrkdwn", "text": f"*Priority:*\n{priority_emoji} {priority}"},
+                            {"type": "mrkdwn", "text": f"*Product:*\n{product}"},
+                            {"type": "mrkdwn", "text": f"*Issue:*\n{issue}"},
+                            {"type": "mrkdwn", "text": f"*Severity:*\n{severity}"},
+                            {"type": "mrkdwn", "text": f"*Risk Gap:*\n{risk_gap:.0%}"},
+                            {
+                                "type": "mrkdwn",
+                                "text": (
+                                    f"*Resolution Probability:*\n"
+                                    f"{resolution_prob:.0%} (CI: {ci_low:.0%}–{ci_high:.0%})"
+                                ),
+                            },
+                            {"type": "mrkdwn", "text": f"*Company:*\n{company}"},
+                        ],
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*Complaint excerpt:*\n_{narrative_preview}_",
+                        },
+                    },
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": f"*Remediation Steps:*\n{steps_text}"},
+                    },
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": f"*Applicable Regulations:* {regs_text}"},
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": "Assigned via CFPB Complaint Intelligence System",
+                            }
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+    try:
+        resp = requests.post(webhook_url, json=payload, timeout=5)
+        resp.raise_for_status()
+        channel = f"team-{assigned_team.replace('_', '-')}"
+        logger.info(f"Team routing alert sent to #{channel}")
+        return True
+    except Exception as exc:
+        logger.error(f"Failed to send team routing alert to '{assigned_team}': {exc}")
         return False
