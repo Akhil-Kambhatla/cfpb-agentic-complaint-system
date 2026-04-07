@@ -23,6 +23,19 @@ TEAM_WEBHOOK_MAP: dict[str, Optional[str]] = {
     "executive_escalation": os.getenv("SLACK_WEBHOOK_EXECUTIVE_ESCALATION"),
 }
 
+# Startup webhook configuration check
+_TEAM_ENV_VARS = [
+    ("compliance", "SLACK_WEBHOOK_COMPLIANCE"),
+    ("billing_disputes", "SLACK_WEBHOOK_BILLING_DISPUTES"),
+    ("fraud", "SLACK_WEBHOOK_FRAUD"),
+    ("customer_service", "SLACK_WEBHOOK_CUSTOMER_SERVICE"),
+    ("legal", "SLACK_WEBHOOK_LEGAL"),
+    ("executive_escalation", "SLACK_WEBHOOK_EXECUTIVE_ESCALATION"),
+]
+for _team, _env_var in _TEAM_ENV_VARS:
+    _url = os.getenv(_env_var)
+    logger.info(f"[SLACK] {_team} webhook: {'configured' if _url else 'MISSING'}")
+
 
 def send_slack_alert(complaint_summary: dict) -> bool:
     """Send a Slack Block Kit alert for a high-risk complaint.
@@ -138,9 +151,12 @@ def send_team_routing_alert(complaint_summary: dict, assigned_team: str) -> bool
     Returns:
         True if the alert was sent successfully, False otherwise.
     """
+    logger.info(f"[SLACK] send_team_routing_alert called for team: {assigned_team}")
     webhook_url = TEAM_WEBHOOK_MAP.get(assigned_team)
+    logger.info(f"[SLACK] Webhook URL found: {bool(webhook_url)}")
     if not webhook_url:
-        logger.warning(f"No Slack webhook configured for team '{assigned_team}' — skipping team alert")
+        logger.warning(f"[SLACK] No webhook configured for team '{assigned_team}' — skipping team alert. "
+                       f"Available teams: {list(TEAM_WEBHOOK_MAP.keys())}")
         return False
 
     product = complaint_summary.get("product", "Unknown")

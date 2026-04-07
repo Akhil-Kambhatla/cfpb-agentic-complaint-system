@@ -1,170 +1,203 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useState, useEffect, useRef } from "react";
+import { motion, useInView } from "framer-motion";
 import {
-  GitBranch, Shield, Database, Trophy, ArrowRight,
-  AlertTriangle, CheckCircle2, Zap, BookOpen, MessageSquare,
+  Trophy, ArrowRight, GitBranch, Database, Users,
 } from "lucide-react";
 
-// ─── Section wrapper ──────────────────────────────────────────────────────────
-function PageSection({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+// ─── Count-up animation ────────────────────────────────────────────────────────
+function CountUp({
+  end, suffix = "", prefix = "", duration = 1500, decimals = 0,
+}: {
+  end: number; suffix?: string; prefix?: string; duration?: number; decimals?: number;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true });
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!inView) return;
+    const startTime = Date.now();
+    const frame = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCount(end * eased);
+      if (progress < 1) requestAnimationFrame(frame);
+      else setCount(end);
+    };
+    requestAnimationFrame(frame);
+  }, [inView, end, duration]);
+
+  const display = decimals > 0 ? count.toFixed(decimals) : Math.round(count).toLocaleString();
+  return <span ref={ref}>{prefix}{display}{suffix}</span>;
+}
+
+// ─── Full-width section with alternating background ────────────────────────────
+function SectionWrapper({
+  children, bg = "#ffffff",
+}: {
+  children: React.ReactNode; bg?: string;
+}) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay }}
-    >
-      {children}
-    </motion.div>
+    <div style={{ background: bg, width: "100%" }}>
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: "-80px" }}
+        transition={{ duration: 0.5 }}
+        style={{ maxWidth: 1100, margin: "0 auto", padding: "72px 24px" }}
+      >
+        {children}
+      </motion.div>
+    </div>
   );
 }
 
-// ─── Card ─────────────────────────────────────────────────────────────────────
+// ─── Shared card ──────────────────────────────────────────────────────────────
 function Card({ children, style = {} }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div style={{
       borderRadius: 16, border: "1px solid #e5e7eb",
       background: "#ffffff", boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
-      padding: "20px 24px",
-      ...style,
+      padding: "20px 24px", ...style,
     }}>
       {children}
     </div>
   );
 }
 
-// ─── Stat card ────────────────────────────────────────────────────────────────
-function StatCard({ value, label, color = "#10b981" }: { value: string; label: string; color?: string }) {
+// ─── Section heading ──────────────────────────────────────────────────────────
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 style={{ fontSize: 30, fontWeight: 800, color: "#111827", margin: "0 0 24px", lineHeight: 1.2 }}>
+      {children}
+    </h2>
+  );
+}
+
+// ─── Animated stat card (problem section) ────────────────────────────────────
+function BigStatCard({
+  label, color = "#10b981", end, suffix = "", prefix = "", decimals = 0,
+}: {
+  label: string; color?: string; end: number; suffix?: string; prefix?: string; decimals?: number;
+}) {
   return (
     <div style={{
-      borderRadius: 14, border: `1px solid ${color}30`,
-      background: `${color}08`,
-      padding: "18px 20px", textAlign: "center",
+      borderRadius: 16, border: `1px solid ${color}30`,
+      background: `${color}08`, padding: "24px 20px",
+      textAlign: "center", flex: 1, minWidth: 160,
     }}>
-      <p style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1, margin: 0 }}>{value}</p>
-      <p style={{ fontSize: 11, color: "#4b5563", marginTop: 6 }}>{label}</p>
+      <p style={{ fontSize: 36, fontWeight: 800, color, lineHeight: 1, margin: 0 }}>
+        <CountUp end={end} suffix={suffix} prefix={prefix} decimals={decimals} />
+      </p>
+      <p style={{ fontSize: 12, color: "#4b5563", marginTop: 8 }}>{label}</p>
     </div>
   );
 }
 
-// ─── Agent pill ───────────────────────────────────────────────────────────────
-function AgentPill({ name, color, desc }: { name: string; color: string; desc: string }) {
+// ─── Agent row ────────────────────────────────────────────────────────────────
+function AgentRow({ num, name, color, desc }: { num: number; name: string; color: string; desc: string }) {
   return (
     <div style={{
-      display: "flex", alignItems: "flex-start", gap: 12,
-      padding: "14px 16px", borderRadius: 12,
-      border: `1.5px solid ${color}30`, background: `${color}06`,
+      display: "flex", alignItems: "flex-start", gap: 14,
+      padding: "14px 18px", borderRadius: 12,
+      border: `1px solid ${color}20`, background: `${color}05`,
     }}>
       <div style={{
-        width: 10, height: 10, borderRadius: "50%", background: color,
-        flexShrink: 0, marginTop: 4,
-      }} />
-      <div>
-        <p style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: 0 }}>{name}</p>
-        <p style={{ fontSize: 11, color: "#4b5563", marginTop: 3, lineHeight: 1.5 }}>{desc}</p>
-      </div>
-    </div>
-  );
-}
-
-// ─── Tech badge ───────────────────────────────────────────────────────────────
-function TechBadge({ name, tag }: { name: string; tag: string }) {
-  return (
-    <div style={{
-      borderRadius: 10, border: "1px solid #e5e7eb", background: "#fafafa",
-      padding: "10px 14px", display: "flex", flexDirection: "column", gap: 4,
-    }}>
-      <p style={{ fontSize: 12, fontWeight: 700, color: "#111827", margin: 0 }}>{name}</p>
-      <p style={{ fontSize: 10, color: "#6b7280" }}>{tag}</p>
-    </div>
-  );
-}
-
-// ─── Mock Slack message ───────────────────────────────────────────────────────
-function SlackMockup({ channel, type }: { channel: string; type: "team" | "alert" }) {
-  const isAlert = type === "alert";
-  const color = isAlert ? "#e11d48" : "#0284c7";
-  const icon = isAlert ? "⚠️" : "📋";
-  const title = isAlert ? "High-Risk Complaint Detected" : "New Complaint Routed to Your Team";
-
-  return (
-    <div style={{
-      borderRadius: 10, border: "1px solid #e5e7eb",
-      background: "#ffffff", overflow: "hidden",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-    }}>
-      {/* Slack-style header bar */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "10px 14px", background: "#f8fafc",
-        borderBottom: "1px solid #e5e7eb",
+        width: 28, height: 28, borderRadius: 8, background: color,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0, fontSize: 13, fontWeight: 800, color: "#fff",
       }}>
-        <div style={{
-          width: 16, height: 16, borderRadius: 3,
-          background: "#4a154b",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <span style={{ fontSize: 9, color: "#fff", fontWeight: 800 }}>S</span>
+        {num}
+      </div>
+      <div>
+        <p style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 3px" }}>{name}</p>
+        <p style={{ fontSize: 12, color: "#4b5563", margin: 0, lineHeight: 1.5 }}>{desc}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Team placeholder card ────────────────────────────────────────────────────
+function TeamCard({ name }: { name: string }) {
+  return (
+    <div style={{
+      borderRadius: 14, border: "1px solid #e5e7eb", background: "#fff",
+      padding: "20px 16px", textAlign: "center",
+      boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+    }}>
+      <div style={{
+        width: 56, height: 56, borderRadius: "50%",
+        background: "#e5e7eb", margin: "0 auto 12px",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <Users style={{ width: 24, height: 24, color: "#9ca3af" }} />
+      </div>
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>{name}</p>
+      <p style={{ fontSize: 11, color: "#6b7280", margin: 0 }}>University of Maryland, MS Data Science</p>
+    </div>
+  );
+}
+
+// ─── ROI Calculator ────────────────────────────────────────────────────────────
+function ROICalculator() {
+  const [volume, setVolume] = useState(5000);
+
+  const annualSystemCost = Math.round(volume * 12 * 0.0051 + 600);
+  const highRiskCaught = Math.round(volume * 12 * 0.086);
+  const exposureAvoided = highRiskCaught * 50000;
+  const roi = Math.round(((exposureAvoided - annualSystemCost) / annualSystemCost) * 100);
+
+  const fmt = (n: number) =>
+    n >= 1_000_000
+      ? `$${(n / 1_000_000).toFixed(1)}M`
+      : n >= 1_000
+      ? `$${(n / 1_000).toFixed(0)}K`
+      : `$${n}`;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 28 }}>
+        <label style={{ display: "block", fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 12 }}>
+          Monthly complaint volume:{" "}
+          <span style={{ color: "#0284c7", fontWeight: 800 }}>{volume.toLocaleString()}</span>
+        </label>
+        <input
+          type="range" min={100} max={50000} step={100}
+          value={volume}
+          onChange={(e) => setVolume(Number(e.target.value))}
+          style={{ width: "100%", accentColor: "#0284c7", cursor: "pointer" }}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+          <span style={{ fontSize: 10, color: "#9ca3af" }}>100</span>
+          <span style={{ fontSize: 10, color: "#9ca3af" }}>50,000</span>
         </div>
-        <span style={{ fontSize: 11, fontWeight: 700, color: "#1d1c1d" }}>#{channel}</span>
       </div>
 
-      {/* Message body */}
-      <div style={{ padding: "12px 14px" }}>
-        <div style={{ display: "flex", gap: 10 }}>
-          {/* Avatar */}
-          <div style={{
-            width: 28, height: 28, borderRadius: 6, flexShrink: 0,
-            background: "#10b981", display: "flex", alignItems: "center",
-            justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff",
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+        {[
+          { label: "Annual System Cost", value: fmt(annualSystemCost), color: "#6b7280" },
+          { label: "High-Risk Complaints Caught", value: `${highRiskCaught.toLocaleString()}/yr`, color: "#f97316" },
+          { label: "Regulatory Exposure Avoided", value: fmt(exposureAvoided), color: "#10b981" },
+          { label: "Estimated ROI", value: `${roi.toLocaleString()}%`, color: "#7c3aed" },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{
+            borderRadius: 12, border: `1px solid ${color}25`,
+            background: `${color}08`, padding: "16px 20px", textAlign: "center",
           }}>
-            AI
+            <p style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1, margin: "0 0 6px" }}>{value}</p>
+            <p style={{ fontSize: 11, color: "#4b5563", margin: 0 }}>{label}</p>
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#1d1c1d" }}>CFPB Intelligence</span>
-              <span style={{ fontSize: 10, color: "#9ca3af" }}>Today at 2:14 PM</span>
-            </div>
-
-            {/* Attachment */}
-            <div style={{
-              borderLeft: `4px solid ${color}`,
-              borderRadius: "0 8px 8px 0",
-              background: "#fafafa",
-              border: `1px solid ${color}30`,
-              borderLeftColor: color,
-              padding: "10px 12px",
-            }}>
-              <p style={{ fontSize: 12, fontWeight: 700, color: "#1d1c1d", margin: "0 0 8px" }}>
-                {icon} {title}
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
-                {isAlert ? (
-                  <>
-                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Product: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#374151" }}>Credit Card</span></div>
-                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Severity: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#b91c1c" }}>CRITICAL</span></div>
-                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Risk Gap: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#c2410c" }}>+34%</span></div>
-                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Resolution: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#374151" }}>28% (CI: 18%–41%)</span></div>
-                  </>
-                ) : (
-                  <>
-                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Priority: </span><span style={{ fontSize: 10, fontWeight: 700, color: "#b91c1c" }}>🔴 P1</span></div>
-                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Product: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#374151" }}>Debt Collection</span></div>
-                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Severity: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#374151" }}>HIGH</span></div>
-                    <div><span style={{ fontSize: 10, color: "#6b7280" }}>Company: </span><span style={{ fontSize: 10, fontWeight: 600, color: "#374151" }}>Equifax</span></div>
-                  </>
-                )}
-              </div>
-              <p style={{ fontSize: 10, color: "#6b7280", marginTop: 8, fontStyle: "italic" }}>
-                &ldquo;I keep receiving calls about a debt I already paid in full…&rdquo;
-              </p>
-              <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
-                Assigned via CFPB Complaint Intelligence System
-              </p>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
+
+      <p style={{ fontSize: 12, color: "#6b7280", marginTop: 16, lineHeight: 1.7 }}>
+        Conservative estimate assumes $50K average regulatory impact per mishandled high-risk complaint.
+        CFPB enforcement actions in 2024 averaged $500K–$5M per action. Even catching one
+        enforcement-level complaint per year pays for the system 300× over.
+      </p>
     </div>
   );
 }
@@ -172,11 +205,11 @@ function SlackMockup({ channel, type }: { channel: string; type: "team" | "alert
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function AboutPage() {
   return (
-    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 24px", display: "flex", flexDirection: "column", gap: 48 }}>
+    <div>
 
       {/* ── 1. Hero ──────────────────────────────────────────────────────────── */}
-      <PageSection delay={0}>
-        <div style={{ textAlign: "center", padding: "24px 0 8px" }}>
+      <SectionWrapper bg="#ffffff">
+        <div style={{ textAlign: "center", padding: "16px 0 8px" }}>
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             padding: "5px 14px", borderRadius: 9999,
@@ -189,344 +222,478 @@ export default function AboutPage() {
             </span>
           </div>
 
-          <h1 style={{ fontSize: 36, fontWeight: 800, color: "#111827", margin: "0 0 16px", lineHeight: 1.2 }}>
-            Multi-Agent Complaint Intelligence with Bayesian Risk Assessment
+          <h1 style={{ fontSize: 44, fontWeight: 800, color: "#111827", margin: "0 0 12px", lineHeight: 1.15 }}>
+            CFPB Complaint Intelligence System
           </h1>
-          <p style={{ fontSize: 16, color: "#4b5563", maxWidth: 680, margin: "0 auto", lineHeight: 1.7 }}>
-            A multi-agent AI system that classifies, analyzes, routes, and resolves consumer
-            financial complaints — featuring <strong style={{ color: "#047857" }}>Bayesian risk intelligence</strong> to
-            answer: <em>"What is the probability this complaint gets resolved, and what intervention will change that?"</em>
+          <p style={{ fontSize: 20, fontWeight: 600, color: "#374151", margin: "0 0 16px" }}>
+            Multi-Agent AI with Bayesian Risk Assessment
+          </p>
+          <p style={{ fontSize: 15, color: "#6b7280", maxWidth: 640, margin: "0 auto 36px", lineHeight: 1.75 }}>
+            Turning consumer complaints into actionable intelligence — identifying high-risk
+            dismissals before they become regulatory problems.
           </p>
 
-          <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 28, flexWrap: "wrap" }}>
-            <StatCard value="70%" label="Product accuracy" color="#10b981" />
-            <StatCard value="6" label="Specialized agents" color="#0ea5e9" />
-            <StatCard value="8.4s" label="Avg pipeline latency" color="#8b5cf6" />
-            <StatCard value="11" label="Product categories" color="#f59e0b" />
+          <div style={{ display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap" }}>
+            {[
+              { value: "70%", label: "Product accuracy", color: "#10b981" },
+              { value: "6", label: "Specialized agents", color: "#0ea5e9" },
+              { value: "8.4s", label: "Avg pipeline latency", color: "#8b5cf6" },
+              { value: "11", label: "Product categories", color: "#f59e0b" },
+            ].map(({ value, label, color }) => (
+              <div key={label} style={{
+                borderRadius: 14, border: `1px solid ${color}30`, background: `${color}08`,
+                padding: "18px 24px", textAlign: "center", minWidth: 120,
+              }}>
+                <p style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1, margin: 0 }}>{value}</p>
+                <p style={{ fontSize: 11, color: "#4b5563", marginTop: 6 }}>{label}</p>
+              </div>
+            ))}
           </div>
         </div>
-      </PageSection>
+      </SectionWrapper>
 
-      {/* ── 2. Problem ───────────────────────────────────────────────────────── */}
-      <PageSection delay={0.05}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>The Problem</h2>
+      {/* ── 2. The Problem ───────────────────────────────────────────────────── */}
+      <SectionWrapper bg="#f9fafb">
+        <SectionTitle>The $2.9 Billion Problem</SectionTitle>
+
+        <div style={{ display: "flex", gap: 16, marginBottom: 32, flexWrap: "wrap" }}>
+          <BigStatCard end={14} suffix="M+" label="complaints in the CFPB database" color="#0ea5e9" />
+          <BigStatCard end={2.9} suffix="B" prefix="$" label="complaint management software market (2026)" color="#7c3aed" decimals={1} />
+          <BigStatCard end={59} suffix="%" label="of complaints closed with just an explanation" color="#f97316" />
+          <BigStatCard end={8.6} suffix="%" label="of dismissed complaints carry high regulatory risk" color="#e11d48" decimals={1} />
+        </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <Card>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 9, background: "#fee2e2", border: "1px solid #fca5a5", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <AlertTriangle style={{ width: 18, height: 18, color: "#dc2626" }} />
-              </div>
-              <div>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 8px" }}>Manual Review Bottlenecks</h3>
-                <p style={{ fontSize: 12, color: "#4b5563", lineHeight: 1.7, margin: 0 }}>
-                  The CFPB receives over 5,000 complaints per week. Manual triage by compliance
-                  analysts is slow, inconsistent, and costly — creating resolution delays that harm consumers.
-                </p>
-              </div>
-            </div>
+            <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.8, margin: 0 }}>
+              Financial institutions receive thousands of consumer complaints monthly through the CFPB.
+              The majority are handled reactively — categorized by hand, routed inconsistently, and often
+              dismissed with a generic explanation. This creates regulatory exposure: complaints that should
+              have been resolved are dismissed, leading to enforcement actions, fines, and customer churn.
+            </p>
           </Card>
-
           <Card>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 9, background: "#fef3c7", border: "1px solid #fcd34d", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <BookOpen style={{ width: 18, height: 18, color: "#d97706" }} />
-              </div>
-              <div>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 8px" }}>Hidden Resolution Risk</h3>
-                <p style={{ fontSize: 12, color: "#4b5563", lineHeight: 1.7, margin: 0 }}>
-                  Existing classifiers only label "what" a complaint is about. They miss which complaints are
-                  at risk of being dismissed despite high regulatory exposure — the dangerous gap.
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 9, background: "#ede9fe", border: "1px solid #c4b5fd", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Shield style={{ width: 18, height: 18, color: "#7c3aed" }} />
-              </div>
-              <div>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 8px" }}>Regulatory Complexity</h3>
-                <p style={{ fontSize: 12, color: "#4b5563", lineHeight: 1.7, margin: 0 }}>
-                  Each product category (mortgages, credit cards, debt collection) falls under different
-                  federal regulations — TILA, FCRA, FDCPA, CFPA. Response letters must cite the correct law.
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 9, background: "#e0f2fe", border: "1px solid #bae6fd", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Zap style={{ width: 18, height: 18, color: "#0284c7" }} />
-              </div>
-              <div>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 8px" }}>Lack of Explainability</h3>
-                <p style={{ fontSize: 12, color: "#4b5563", lineHeight: 1.7, margin: 0 }}>
-                  Black-box ML classifiers can't explain their decisions to regulators. Compliance teams
-                  need auditability — who decided what, with what confidence, and why.
-                </p>
-              </div>
-            </div>
+            <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.8, margin: 0 }}>
+              The complaint management software market is projected to grow from $2.9B to $5.3B by 2032
+              (10.5% CAGR). Companies like Zendesk, Salesforce, and Freshworks are investing heavily in
+              AI-powered complaint resolution. Our system addresses the gap none of these platforms fill:
+              predicting which complaints are dangerously under-prioritized using calibrated Bayesian
+              risk assessment.
+            </p>
           </Card>
         </div>
-      </PageSection>
+      </SectionWrapper>
 
-      {/* ── 3. Approach ──────────────────────────────────────────────────────── */}
-      <PageSection delay={0.08}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Our Approach</h2>
-        <Card>
-          <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.7, margin: "0 0 20px" }}>
-            We built a <strong>LangGraph-orchestrated multi-agent pipeline</strong> where each agent is a
-            specialist. The orchestrator routes outputs from one agent to the next, building a cumulative
-            evidence chain across six stages.
+      {/* ── 3. Our Solution ──────────────────────────────────────────────────── */}
+      <SectionWrapper bg="#ffffff">
+        <SectionTitle>What We Built</SectionTitle>
+        <p style={{ fontSize: 14, color: "#4b5563", lineHeight: 1.75, marginTop: -8, marginBottom: 28 }}>
+          A multi-agent AI system with 6 specialized agents that process complaints end-to-end:
+          from raw narrative to risk-assessed, team-routed resolution plan with real-time Slack alerts.
+        </p>
+
+        {/* Static pipeline diagram */}
+        <Card style={{ marginBottom: 24, background: "#fafafa" }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 16px" }}>
+            Agent Pipeline
           </p>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 0, flexWrap: "wrap", justifyContent: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
             {[
-              { label: "Complaint Input", color: "#0ea5e9" },
+              { label: "Input", color: "#6b7280" },
               { label: "Classifier", color: "#0ea5e9" },
-              { label: "Risk Analyzer", color: "#8b5cf6" },
-              { label: "Event Chain", color: "#f97316" },
-              { label: "Router", color: "#f97316" },
-              { label: "Resolution", color: "#10b981" },
-              { label: "Quality Check", color: "#ec4899" },
+              { label: "Bayesian Risk Analyzer", color: "#8b5cf6" },
+              { label: "Event Chain Analyst", color: "#f97316" },
+              { label: "Router", color: "#10b981" },
+              { label: "Resolution Generator", color: "#ec4899" },
+              { label: "Quality Check", color: "#6366f1" },
             ].map((step, i, arr) => (
-              <div key={step.label} style={{ display: "flex", alignItems: "center", gap: 0 }}>
+              <div key={step.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{
-                  padding: "8px 14px", borderRadius: 9,
-                  background: `${step.color}12`, border: `1.5px solid ${step.color}30`,
-                  fontSize: 12, fontWeight: 600, color: step.color,
-                  whiteSpace: "nowrap",
+                  padding: "7px 14px", borderRadius: 8,
+                  background: `${step.color}12`, border: `1.5px solid ${step.color}35`,
+                  fontSize: 12, fontWeight: 600, color: step.color, whiteSpace: "nowrap",
                 }}>
                   {step.label}
                 </div>
                 {i < arr.length - 1 && (
-                  <ArrowRight style={{ width: 14, height: 14, color: "#d1d5db", margin: "0 4px", flexShrink: 0 }} />
+                  <ArrowRight style={{ width: 13, height: 13, color: "#d1d5db", flexShrink: 0 }} />
                 )}
               </div>
             ))}
           </div>
         </Card>
-      </PageSection>
 
-      {/* ── 4. Agents ────────────────────────────────────────────────────────── */}
-      <PageSection delay={0.1}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>The Agents</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <AgentPill
-            name="Classifier Agent"
-            color="#0ea5e9"
-            desc="Classifies product, issue, severity, and compliance risk from the raw narrative using structured LLM output and few-shot examples from CFPB categories."
-          />
-          <AgentPill
-            name="Bayesian Risk Analyzer"
-            color="#8b5cf6"
-            desc="Computes posterior resolution probability with calibrated credible intervals, identifies risk gap vs. product baseline, and recommends the highest-impact intervention."
-          />
-          <AgentPill
-            name="Event Chain Agent"
-            color="#f97316"
-            desc="Reconstructs the sequence of events from the complaint narrative — identifying the root cause, causal chain, and the prevention step that would have stopped the complaint."
-          />
-          <AgentPill
-            name="Router Agent"
-            color="#10b981"
-            desc="Assigns complaints to the correct internal team (compliance, legal, fraud, etc.) with priority level using hybrid rule-based + LLM reasoning, then alerts the team via Slack."
-          />
-          <AgentPill
-            name="Resolution Agent"
-            color="#ec4899"
-            desc="Generates regulation-specific remediation steps and a regulatory-compliant customer response letter citing TILA, FCRA, FDCPA, or CFPA as applicable."
-          />
-          <AgentPill
-            name="Quality Check Agent"
-            color="#6b7280"
-            desc="Validates consistency across all agents, computes per-agent confidence scores, and flags cases requiring human review when overall confidence falls below 70%."
-          />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <AgentRow num={1} name="Classifier" color="#0ea5e9"
+            desc="Identifies product, issue, severity, and compliance risk from raw narrative using structured LLM output and few-shot examples from CFPB categories." />
+          <AgentRow num={2} name="Bayesian Risk Analyzer" color="#8b5cf6"
+            desc="Predicts resolution probability with calibrated uncertainty — 95% credible intervals, not just a point estimate, using Bayesian logistic regression on 10,000 CFPB complaints." />
+          <AgentRow num={3} name="Event Chain Analyst" color="#f97316"
+            desc="Traces the sequence of events that led to the complaint, identifying root cause, causal chain, and the prevention step that would have stopped the complaint." />
+          <AgentRow num={4} name="Router" color="#10b981"
+            desc="Assigns to the right team at the right priority using hybrid rule-based + LLM reasoning, then sends real-time Slack alerts to the assigned channel." />
+          <AgentRow num={5} name="Resolution Generator" color="#ec4899"
+            desc="Creates remediation plan and regulatory-compliant customer response letter citing TILA, FCRA, FDCPA, or CFPA as applicable to the product type." />
+          <AgentRow num={6} name="Quality Check" color="#6366f1"
+            desc="Validates consistency across all agents, computes per-agent confidence scores, and flags cases for human review when overall confidence falls below 70%." />
         </div>
-      </PageSection>
+      </SectionWrapper>
 
-      {/* ── 5. Differentiator ────────────────────────────────────────────────── */}
-      <PageSection delay={0.12}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>What Makes Us Different</h2>
-        <Card style={{ borderLeft: "5px solid #8b5cf6", background: "linear-gradient(135deg, #faf5ff 0%, #ffffff 100%)" }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: "#ede9fe", border: "1px solid #c4b5fd", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <GitBranch style={{ width: 20, height: 20, color: "#7c3aed" }} />
-            </div>
-            <div>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 8px" }}>
-                Bayesian Risk Intelligence
-              </h3>
-              <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.7, margin: "0 0 14px" }}>
-                Most teams submit classifiers. We go further: our Bayesian Risk Analyzer computes a
-                posterior resolution probability with calibrated credible intervals using features derived
-                from 1.5 million CFPB complaints. We identify the <em>risk gap</em> — complaints with
-                high regulatory exposure but low resolution probability — the cases most likely to be
-                wrongly dismissed. Product type is the dominant predictor, explaining over 60% of outcome
-                variance across product categories.
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                {[
-                  { icon: CheckCircle2, color: "#10b981", title: "Calibrated Uncertainty", desc: "Posterior credible intervals — not just a point estimate — for honest risk communication" },
-                  { icon: CheckCircle2, color: "#10b981", title: "Risk Gap Analysis", desc: "Identifies dangerously dismissed complaints: high regulatory risk, low resolution probability" },
-                  { icon: CheckCircle2, color: "#10b981", title: "Real-Time Slack Routing", desc: "When pipeline completes, assigned team gets an instant alert with full context and remediation steps" },
-                ].map(({ icon: Icon, color, title, desc }) => (
-                  <div key={title} style={{ borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa", padding: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                      <Icon style={{ width: 14, height: 14, color }} />
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>{title}</span>
-                    </div>
-                    <p style={{ fontSize: 11, color: "#4b5563", lineHeight: 1.5, margin: 0 }}>{desc}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </Card>
-      </PageSection>
-
-      {/* ── 6. Live Integration ──────────────────────────────────────────────── */}
-      <PageSection delay={0.13}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Live Integration</h2>
-        <Card>
-          <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.7, margin: "0 0 20px" }}>
-            When a complaint is processed, the system automatically routes a Slack notification to the assigned team.
-            If the complaint exceeds the high-risk threshold (risk gap &gt; 20%), a second alert is sent to the
-            compliance oversight channel <strong>#cfpb-alerts</strong>.
-          </p>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-            <div>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>
-                Team Channel (always sent)
-              </p>
-              <SlackMockup channel="team-billing-disputes" type="team" />
-            </div>
-            <div>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>
-                Oversight Channel (high-risk only)
-              </p>
-              <SlackMockup channel="cfpb-alerts" type="alert" />
-            </div>
-          </div>
-
-          {/* Team channel mapping */}
-          <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 10 }}>Team Channel Routing</p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-            {[
-              { team: "compliance", channel: "#team-compliance" },
-              { team: "billing_disputes", channel: "#team-billing-disputes" },
-              { team: "fraud", channel: "#team-fraud" },
-              { team: "customer_service", channel: "#team-customer-service" },
-              { team: "legal", channel: "#team-legal" },
-              { team: "executive_escalation", channel: "#team-executive-escalation" },
-            ].map(({ team, channel }) => (
-              <div key={team} style={{
-                display: "flex", alignItems: "center", gap: 8,
-                padding: "8px 12px", borderRadius: 8,
-                background: "#f9fafb", border: "1px solid #f3f4f6",
-              }}>
-                <MessageSquare style={{ width: 12, height: 12, color: "#4a154b", flexShrink: 0 }} />
-                <div>
-                  <p style={{ fontSize: 11, fontWeight: 600, color: "#111827", margin: 0 }}>
-                    {team.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                  </p>
-                  <p style={{ fontSize: 10, color: "#6b7280", margin: 0 }}>{channel}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </PageSection>
-
-      {/* ── 7. Data ──────────────────────────────────────────────────────────── */}
-      <PageSection delay={0.14}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Data</h2>
-        <Card>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <Database style={{ width: 18, height: 18, color: "#0ea5e9" }} />
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: 0 }}>CFPB Consumer Complaint Database</h3>
-              </div>
-              <p style={{ fontSize: 12, color: "#4b5563", lineHeight: 1.7, margin: 0 }}>
-                The public CFPB dataset contains over 5 million complaints since 2011. We filter for
-                records with consumer narrative text (~25–30% of all records), then sample stratified
-                subsets by product category for development and evaluation.
-              </p>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {[
-                { label: "Full dataset", value: "5M+ complaints" },
-                { label: "With narrative (our filter)", value: "~1.5M records" },
-                { label: "Dev set used", value: "10,000 records" },
-                { label: "Evaluation set", value: "50 stratified" },
-              ].map(({ label, value }) => (
-                <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderRadius: 8, background: "#f9fafb", border: "1px solid #f3f4f6" }}>
-                  <span style={{ fontSize: 12, color: "#4b5563" }}>{label}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#111827", fontFamily: "monospace" }}>{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Card>
-      </PageSection>
-
-      {/* ── 8. Tech Stack ────────────────────────────────────────────────────── */}
-      <PageSection delay={0.16}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Tech Stack</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+      {/* ── 4. Differentiator ────────────────────────────────────────────────── */}
+      <SectionWrapper bg="#f9fafb">
+        <SectionTitle>Our Differentiator: Bayesian Risk Intelligence</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
           {[
-            { name: "LangGraph", tag: "Agent orchestration" },
-            { name: "Claude Sonnet 4.6", tag: "LLM backbone" },
-            { name: "FastAPI + SSE", tag: "Streaming backend" },
-            { name: "Next.js 16", tag: "React frontend" },
-            { name: "Framer Motion", tag: "UI animations" },
-            { name: "Recharts", tag: "Data visualization" },
-            { name: "Slack Webhooks", tag: "Real-time team routing" },
-            { name: "Pydantic v2", tag: "Typed agent I/O" },
-            { name: "scikit-learn", tag: "Evaluation metrics" },
-            { name: "pandas", tag: "Data processing" },
-            { name: "Anthropic SDK", tag: "LLM API client" },
-            { name: "Python 3.10+", tag: "Backend runtime" },
-          ].map((t) => (
-            <TechBadge key={t.name} name={t.name} tag={t.tag} />
+            {
+              title: "Calibrated Uncertainty",
+              color: "#8b5cf6",
+              text: `Most AI systems give you a single number: "this complaint is 70% likely to be resolved." But how reliable is that number? Our system uses Bayesian statistics to say: "between 65% and 75%, and we're 95% sure." If the range is narrow, we're confident. If it's wide, we're telling you honestly that we're less certain. This calibrated honesty helps compliance teams decide when to trust the AI and when to involve a human.`,
+            },
+            {
+              title: "Risk Gap Analysis",
+              color: "#e11d48",
+              text: "We analyzed 10,000 real CFPB complaints and discovered something alarming: 856 complaints (8.6%) were dismissed by companies despite carrying high regulatory risk. These are the complaints most likely to trigger CFPB enforcement actions — and companies are letting them slip through. Across the full 5 million+ complaint CFPB database, this pattern would scale to potentially hundreds of thousands of dangerously mishandled complaints. Our system catches them automatically.",
+            },
+            {
+              title: "The Product Type Finding",
+              color: "#10b981",
+              text: "Here's what surprised us most: the single biggest factor determining whether your complaint gets resolved isn't how eloquently you describe your problem, whether you cite federal regulations, or whether you mention hiring a lawyer. It's simply what type of financial product your complaint is about. Credit reporting complaints get resolved 47% of the time. Student loan complaints: only 1.9% — a 25x gap. This structural bias means our system can predict likely outcomes the moment a complaint is classified, before anyone reads a single word of the narrative.",
+            },
+          ].map(({ title, color, text }) => (
+            <Card key={title} style={{ borderTop: `4px solid ${color}` }}>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: "0 0 10px" }}>{title}</h3>
+              <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.7, margin: 0 }}>{text}</p>
+            </Card>
           ))}
         </div>
-      </PageSection>
+      </SectionWrapper>
 
-      {/* ── 9. Competition ───────────────────────────────────────────────────── */}
-      <PageSection delay={0.18}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Competition</h2>
-        <Card style={{ background: "linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%)", borderLeft: "5px solid #10b981" }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: "#d1fae5", border: "1px solid #6ee7b7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Trophy style={{ width: 20, height: 20, color: "#059669" }} />
+      {/* ── 5. Timeline & Cost ───────────────────────────────────────────────── */}
+      <SectionWrapper bg="#ffffff">
+        <SectionTitle>Deployment Timeline & Cost</SectionTitle>
+
+        {/* Timeline steps */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 36, overflowX: "auto", paddingBottom: 4 }}>
+          {[
+            { week: "Week 1–2", title: "API Integration", desc: "Connect to existing CRM (Salesforce, ServiceNow, Zendesk) via webhook" },
+            { week: "Week 3", title: "Data Pipeline", desc: "Set up CFPB API for real-time complaint feed" },
+            { week: "Week 4", title: "Slack / Teams", desc: "Team routing alerts and high-risk escalation integration" },
+            { week: "Week 5", title: "User Acceptance Testing", desc: "UAT with compliance team and stakeholders" },
+            { week: "Week 6", title: "Production", desc: "Deploy to production + monitoring dashboard" },
+          ].map((step, i) => (
+            <div key={step.week} style={{ flex: 1, minWidth: 160 }}>
+              <div style={{
+                padding: "16px 14px", borderRadius: 12,
+                border: "1px solid #e5e7eb", background: "#fafafa", height: "100%",
+                boxSizing: "border-box",
+              }}>
+                <div style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  width: 22, height: 22, borderRadius: "50%",
+                  background: "#0284c7", color: "#fff",
+                  fontSize: 11, fontWeight: 800, marginBottom: 8,
+                }}>
+                  {i + 1}
+                </div>
+                <p style={{ fontSize: 10, fontWeight: 700, color: "#0284c7", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 5px" }}>
+                  {step.week}
+                </p>
+                <p style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>{step.title}</p>
+                <p style={{ fontSize: 11, color: "#6b7280", margin: 0, lineHeight: 1.5 }}>{step.desc}</p>
+              </div>
             </div>
+          ))}
+        </div>
+
+        {/* Cost table */}
+        <Card>
+          <p style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>Cost Breakdown</p>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: "2px solid #e5e7eb" }}>
+                <th style={{ textAlign: "left", padding: "8px 12px", color: "#374151", fontWeight: 700 }}>Item</th>
+                <th style={{ textAlign: "right", padding: "8px 12px", color: "#374151", fontWeight: 700 }}>Monthly Cost</th>
+                <th style={{ textAlign: "right", padding: "8px 12px", color: "#374151", fontWeight: 700 }}>Annual Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { item: "Claude API (10,000 complaints/month)", monthly: "$51", annual: "$612" },
+                { item: "Cloud hosting (FastAPI + Next.js)", monthly: "$50", annual: "$600" },
+                { item: "Monitoring & logging", monthly: "$20", annual: "$240" },
+              ].map(({ item, monthly, annual }) => (
+                <tr key={item} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                  <td style={{ padding: "10px 12px", color: "#374151" }}>{item}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "#374151", fontFamily: "monospace" }}>{monthly}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "#374151", fontFamily: "monospace" }}>{annual}</td>
+                </tr>
+              ))}
+              <tr style={{ borderTop: "2px solid #e5e7eb", background: "#f9fafb" }}>
+                <td style={{ padding: "10px 12px", fontWeight: 700, color: "#111827" }}>Total operational cost</td>
+                <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, color: "#10b981", fontFamily: "monospace" }}>$121</td>
+                <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, color: "#10b981", fontFamily: "monospace" }}>$1,452</td>
+              </tr>
+            </tbody>
+          </table>
+          <p style={{ fontSize: 11, color: "#6b7280", marginTop: 12, lineHeight: 1.7 }}>
+            Costs based on Claude Sonnet at $3/M input + $15/M output tokens. Each complaint averages
+            5,000 tokens across 6 agents. No GPU infrastructure required — runs on standard cloud compute.
+          </p>
+        </Card>
+      </SectionWrapper>
+
+      {/* ── 6. ROI Calculator ────────────────────────────────────────────────── */}
+      <SectionWrapper bg="#f9fafb">
+        <SectionTitle>Return on Investment</SectionTitle>
+        <Card>
+          <ROICalculator />
+        </Card>
+        <Card style={{ marginTop: 16, background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 10px" }}>A Note on Scaling</p>
+          <p style={{ fontSize: 12, color: "#4b5563", lineHeight: 1.75, margin: "0 0 12px" }}>
+            This ROI calculator assumes linear scaling of API costs. In a real enterprise deployment processing 50,000+ complaints per month:
+          </p>
+          <ul style={{ margin: 0, padding: "0 0 0 16px", display: "flex", flexDirection: "column", gap: 4 }}>
+            {[
+              "Parallel processing infrastructure adds ~$200–500/month (message queues, worker processes)",
+              "Anthropic API rate limits may require an upgraded plan for sustained throughput",
+              "A dedicated monitoring dashboard adds ~$100/month",
+              "Estimated total cost at 50,000/month: ~$800/month — still a fraction of the regulatory exposure avoided",
+              "At enterprise scale, the cost per complaint drops to under $0.01 due to infrastructure amortization",
+            ].map((item) => (
+              <li key={item} style={{ fontSize: 12, color: "#4b5563", lineHeight: 1.65 }}>• {item}</li>
+            ))}
+          </ul>
+        </Card>
+      </SectionWrapper>
+
+      {/* ── 7. Risks & Mitigations ───────────────────────────────────────────── */}
+      <SectionWrapper bg="#ffffff">
+        <SectionTitle>Risks & Mitigations</SectionTitle>
+        <p style={{ fontSize: 14, color: "#4b5563", lineHeight: 1.75, marginTop: -16, marginBottom: 20 }}>
+          Building AI systems for regulatory compliance carries real responsibility. Before deploying, any organization should evaluate these risks honestly. We&apos;ve built mitigations directly into the system, but transparency about limitations is as important as the technology itself.
+        </p>
+        <Card style={{ padding: "24px 28px" }}>
+          {/* Header row */}
+          <div style={{
+            display: "grid", gridTemplateColumns: "200px 1fr 1.5fr", gap: 20,
+            paddingBottom: 12, borderBottom: "2px solid #e5e7eb",
+          }}>
+            {["Risk", "Impact", "Mitigation"].map((h) => (
+              <p key={h} style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>{h}</p>
+            ))}
+          </div>
+
+          {[
+            {
+              risk: "Demographic bias in predictions",
+              impact: "Product-type-driven predictions could disadvantage consumers in certain product categories (e.g., payday loans have lowest resolution rates).",
+              mitigation: "System flags product-level bias in evaluation metrics. Fairness analysis built into the evaluation dashboard. Human review threshold ensures low-confidence predictions are checked.",
+            },
+            {
+              risk: "Over-reliance on automation",
+              impact: "Teams may blindly follow AI recommendations without critical thinking.",
+              mitigation: "Human-in-the-loop design: agents below 70% confidence are flagged. Quality Check agent validates consistency. System generates recommendations, not decisions.",
+            },
+            {
+              risk: "Gaming the system",
+              impact: "Companies could strategically resolve only complaints that would trigger regulatory scrutiny, ignoring others.",
+              mitigation: "We track resolution patterns over time. The system flags companies whose resolution rate suddenly changes, suggesting strategic behavior rather than genuine improvement.",
+            },
+            {
+              risk: "Privacy concerns",
+              impact: "Complaint narratives contain sensitive consumer information.",
+              mitigation: "System processes data in transit only — no complaint text is stored after analysis. All processing uses CFPB's already-scrubbed narratives. Slack alerts contain excerpts only, not full text.",
+            },
+            {
+              risk: "Model drift",
+              impact: "Bayesian model trained on 2024 data may become stale as complaint patterns change.",
+              mitigation: "The model can be retrained monthly on fresh CFPB data. The architecture supports model versioning and A/B testing. Monitoring dashboard tracks prediction accuracy over time.",
+            },
+          ].map(({ risk, impact, mitigation }, i, arr) => (
+            <div key={risk} style={{
+              display: "grid", gridTemplateColumns: "200px 1fr 1.5fr", gap: 20,
+              padding: "16px 0",
+              borderBottom: i < arr.length - 1 ? "1px solid #f3f4f6" : "none",
+            }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: 0 }}>{risk}</p>
+              <p style={{ fontSize: 12, color: "#374151", margin: 0, lineHeight: 1.65 }}>{impact}</p>
+              <p style={{ fontSize: 12, color: "#374151", margin: 0, lineHeight: 1.65 }}>{mitigation}</p>
+            </div>
+          ))}
+        </Card>
+      </SectionWrapper>
+
+      {/* ── 8. Integration Architecture ──────────────────────────────────────── */}
+      <SectionWrapper bg="#f9fafb">
+        <SectionTitle>Enterprise Integration Architecture</SectionTitle>
+        <p style={{ fontSize: 14, color: "#4b5563", lineHeight: 1.75, marginTop: -16, marginBottom: 20 }}>
+          An AI system only creates value when it connects to the tools teams already use. The diagram below shows how our system plugs into an organization&apos;s existing workflow — from where complaints enter (upstream) to where results are delivered (downstream). All connections shown below are built and documented as working API endpoints.
+        </p>
+        <Card style={{ padding: "28px 32px" }}>
+          {/* Flow diagram */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 28, alignItems: "center", marginBottom: 32 }}>
+
+            {/* Upstream */}
             <div>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 6px" }}>
-                2026 UMD Agentic AI Challenge
-              </h3>
-              <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 14px" }}>Robert H. Smith School of Business · April 2026</p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 14px" }}>
+                Upstream
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {[
-                  { label: "Novelty", desc: "Bayesian risk intelligence with calibrated uncertainty — identifies dangerously dismissed complaints that classifiers miss" },
-                  { label: "Methodology", desc: "Multi-agent LangGraph with structured I/O, confidence scores, and live Slack integration for team routing" },
-                  { label: "Clarity", desc: "Fully explainable decisions with per-agent reasoning traces, feature effects, and human review flags" },
+                  { label: "CFPB API", desc: "daily complaint feed" },
+                  { label: "Salesforce Service Cloud", desc: "case creation webhook" },
+                  { label: "Email / Web intake", desc: "generic webhook" },
                 ].map(({ label, desc }) => (
-                  <div key={label} style={{ borderRadius: 10, border: "1px solid #d1fae5", background: "#f0fdf4", padding: 12 }}>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: "#047857", margin: "0 0 5px", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</p>
-                    <p style={{ fontSize: 11, color: "#4b5563", lineHeight: 1.5, margin: 0 }}>{desc}</p>
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{
+                      flex: 1, padding: "10px 14px", borderRadius: 10,
+                      border: "1px solid #e5e7eb", background: "#fff",
+                    }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", margin: 0 }}>{label}</p>
+                      <p style={{ fontSize: 10, color: "#9ca3af", margin: 0 }}>{desc}</p>
+                    </div>
+                    <ArrowRight style={{ width: 14, height: 14, color: "#9ca3af", flexShrink: 0 }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Center system box */}
+            <div style={{
+              borderRadius: 16, border: "2px solid #10b981",
+              background: "linear-gradient(135deg, #f0fdf4, #ffffff)",
+              padding: "24px 28px", textAlign: "center", minWidth: 200,
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12, background: "#d1fae5",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                margin: "0 auto 14px",
+              }}>
+                <GitBranch style={{ width: 22, height: 22, color: "#059669" }} />
+              </div>
+              <p style={{ fontSize: 14, fontWeight: 800, color: "#111827", margin: "0 0 2px" }}>
+                CFPB Complaint
+              </p>
+              <p style={{ fontSize: 14, fontWeight: 800, color: "#111827", margin: "0 0 10px" }}>
+                Intelligence System
+              </p>
+              <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 14px", lineHeight: 1.6 }}>
+                6 AI Agents<br />Bayesian Risk Assessment
+              </p>
+              <div style={{ borderTop: "1px solid #d1fae5", paddingTop: 12, marginTop: 4 }}>
+                <p style={{ fontSize: 10, color: "#9ca3af", margin: "0 0 6px" }}>powered by</p>
+                <div style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "5px 12px", borderRadius: 8,
+                  background: "#faf5ff", border: "1px solid #e9d5ff",
+                }}>
+                  <Database style={{ width: 11, height: 11, color: "#7c3aed" }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed" }}>Claude API</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Downstream */}
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 14px" }}>
+                Downstream
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[
+                  { label: "Slack (#team-billing)", desc: "real-time routing alerts" },
+                  { label: "Slack (#team-compliance)", desc: "high-risk escalations" },
+                  { label: "Slack (#cfpb-alerts)", desc: "oversight channel" },
+                  { label: "Salesforce", desc: "AI fields written back to case" },
+                  { label: "CSV / Excel export", desc: "batch results download" },
+                  { label: "Compliance dashboard", desc: "web-based monitoring" },
+                  { label: "Regulatory reporting", desc: "audit trail export" },
+                ].map(({ label, desc }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <ArrowRight style={{ width: 13, height: 13, color: "#9ca3af", flexShrink: 0 }} />
+                    <div style={{
+                      flex: 1, padding: "7px 12px", borderRadius: 8,
+                      border: "1px solid #e5e7eb", background: "#fff",
+                    }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", margin: 0 }}>{label}</p>
+                      <p style={{ fontSize: 10, color: "#9ca3af", margin: 0 }}>{desc}</p>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
+
+          {/* Explanations */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, borderTop: "1px solid #e5e7eb", paddingTop: 20 }}>
+            <div>
+              <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>Upstream (data sources)</p>
+              <ul style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.75, margin: 0, paddingLeft: 16 }}>
+                <li><strong>CFPB API:</strong> polls daily for new complaints about specific companies</li>
+                <li><strong>Salesforce:</strong> accepts Case objects via webhook, returns AI-enriched fields</li>
+                <li><strong>Generic webhook:</strong> any CRM/ticketing system can POST complaints and receive analysis</li>
+              </ul>
+            </div>
+            <div>
+              <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>Downstream (outputs)</p>
+              <ul style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.75, margin: 0, paddingLeft: 16 }}>
+                <li><strong>Slack:</strong> real-time team routing + high-risk escalation alerts</li>
+                <li><strong>Salesforce:</strong> writes back AI classification, risk scores, and resolution plans</li>
+                <li><strong>CSV export:</strong> batch results for compliance reporting</li>
+                <li><strong>Dashboard:</strong> web-based monitoring of complaint trends and risk metrics</li>
+              </ul>
+            </div>
+            <div>
+              <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>External dependency</p>
+              <p style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.75, margin: 0 }}>
+                <strong>Anthropic Claude API:</strong> required for LLM-powered analysis.
+                Estimated uptime: 99.9% (Anthropic SLA). Fallback: queue complaints and
+                process when API recovers.
+              </p>
+            </div>
+          </div>
         </Card>
-      </PageSection>
+      </SectionWrapper>
+
+      {/* ── 9. Tech Stack ────────────────────────────────────────────────────── */}
+      <SectionWrapper bg="#ffffff">
+        <SectionTitle>Technology Stack</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          {[
+            { name: "Python / FastAPI", tag: "Backend API & streaming" },
+            { name: "Next.js / React / TypeScript", tag: "Frontend" },
+            { name: "Claude AI (Anthropic SDK)", tag: "LLM backbone" },
+            { name: "PyMC", tag: "Bayesian inference" },
+            { name: "LangGraph", tag: "Agent orchestration" },
+            { name: "NetworkX", tag: "Graph analysis" },
+            { name: "Pandas / scikit-learn", tag: "Data processing & evaluation" },
+            { name: "Recharts / D3", tag: "Visualization" },
+            { name: "Slack API", tag: "Real-time alerts" },
+          ].map(({ name, tag }) => (
+            <div key={name} style={{
+              borderRadius: 12, border: "1px solid #e5e7eb", background: "#fafafa",
+              padding: "14px 16px",
+            }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>{name}</p>
+              <p style={{ fontSize: 11, color: "#6b7280", margin: 0 }}>{tag}</p>
+            </div>
+          ))}
+        </div>
+      </SectionWrapper>
+
+      {/* ── 10. Team ─────────────────────────────────────────────────────────── */}
+      <SectionWrapper bg="#f9fafb">
+        <SectionTitle>The Team</SectionTitle>
+        <p style={{ fontSize: 13, color: "#6b7280", marginTop: -16, marginBottom: 24 }}>
+          University of Maryland — Master&apos;s in Data Science
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+          <TeamCard name="Team Member 1" />
+          <TeamCard name="Team Member 2" />
+          <TeamCard name="Team Member 3" />
+          <TeamCard name="Team Member 4" />
+        </div>
+      </SectionWrapper>
 
     </div>
   );

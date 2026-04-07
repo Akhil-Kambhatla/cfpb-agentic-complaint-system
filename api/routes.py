@@ -94,14 +94,17 @@ def _run_full_pipeline(complaint: ComplaintInput) -> dict:
     }
 
     # Always send team routing alert
-    team_sent = send_team_routing_alert(summary, routing.assigned_team)
+    team = routing.assigned_team
+    logger.info(f"[PIPELINE] Router assigned: {team}, sending team alert...")
+    team_sent = send_team_routing_alert(summary, team)
+    logger.info(f"[PIPELINE] Team alert sent: {team_sent}")
 
-    # Send high-risk alert to #cfpb-alerts if risk gap exceeds threshold
+    # Send high-risk alert to #cfpb-alerts only if risk gap > threshold
     slack_sent = False
     if risk.risk_gap > HIGH_RISK_THRESHOLD:
+        logger.info(f"[PIPELINE] risk_gap={risk.risk_gap:.2f} > threshold={HIGH_RISK_THRESHOLD}, sending high-risk alert...")
         slack_sent = send_slack_alert(summary)
-        if slack_sent:
-            logger.info(f"Slack high-risk alert sent for complaint {complaint.complaint_id}")
+        logger.info(f"[PIPELINE] High-risk Slack alert sent: {slack_sent}")
 
     return {
         "complaint": _safe_dict(complaint),
@@ -216,12 +219,17 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
         "applicable_regulations": resolution.applicable_regulations,
     }
 
+    team = routing.assigned_team
+    logger.info(f"[PIPELINE] SSE Router assigned: {team}, sending team alert...")
     team_sent = await loop.run_in_executor(
-        None, lambda: send_team_routing_alert(summary, routing.assigned_team)
+        None, lambda: send_team_routing_alert(summary, team)
     )
+    logger.info(f"[PIPELINE] SSE Team alert sent: {team_sent}")
     slack_sent = False
     if risk.risk_gap > HIGH_RISK_THRESHOLD:
+        logger.info(f"[PIPELINE] SSE risk_gap={risk.risk_gap:.2f} > threshold, sending high-risk alert...")
         slack_sent = await loop.run_in_executor(None, lambda: send_slack_alert(summary))
+        logger.info(f"[PIPELINE] SSE High-risk alert sent: {slack_sent}")
 
     # Final complete event
     full_result = {
@@ -323,7 +331,7 @@ async def analyze_batch_csv(file: UploadFile = File(...)):
             detail="CSV must contain a column with 'narrative' or 'complaint' in its name.",
         )
 
-    df = df.head(20)  # hard cap
+    df = df.head(5)  # hard cap (demo mode)
 
     loop = asyncio.get_event_loop()
     results = []

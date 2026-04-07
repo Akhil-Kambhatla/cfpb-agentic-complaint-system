@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
+import InfoTooltip from "./InfoTooltip";
 import type {
   ClassificationOutput,
   CausalAnalysisOutput,
@@ -94,8 +95,18 @@ export function ClassifierCard({ data }: { data: ClassificationOutput }) {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <ConfidenceBar value={data.confidence} label="Classifier confidence" />
-        <ConfidenceBar value={data.compliance_risk_score} label="Compliance risk score" warnBelow={2} />
+        <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+          <div style={{ flex: 1 }}>
+            <ConfidenceBar value={data.confidence} label="Classifier confidence" />
+          </div>
+          <InfoTooltip text="How certain the AI is about the product and issue categorization. Higher = narrative clearly matches a known CFPB category. Lower = ambiguous complaint that could fit multiple categories." />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+          <div style={{ flex: 1 }}>
+            <ConfidenceBar value={data.compliance_risk_score} label="Compliance risk score" warnBelow={2} />
+          </div>
+          <InfoTooltip text="Calculated from: product type risk level + regulation mentions + attorney mentions + contact attempt mentions. Rule-based scoring, not machine learning. Transparent and auditable." />
+        </div>
       </div>
 
       <div style={{ borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa", padding: 12 }}>
@@ -179,7 +190,7 @@ export function ResolutionCard({ data }: { data: ResolutionOutput }) {
       {/* Regulations + timeline */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
         <div style={{ borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa", padding: 12 }}>
-          <p style={{ fontSize: 10, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Applicable Regulations</p>
+          <p style={{ fontSize: 10, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Applicable Consumer Protection Laws</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
             {data.applicable_regulations.map((reg) => (
               <span
@@ -193,9 +204,15 @@ export function ResolutionCard({ data }: { data: ResolutionOutput }) {
               </span>
             ))}
           </div>
+          <p style={{ fontSize: 10, color: "#6b7280", fontStyle: "italic", marginTop: 6, lineHeight: 1.5 }}>
+            These federal laws define the consumer&apos;s rights and the company&apos;s legal obligations. Violations may result in CFPB enforcement fines ranging from $500K to $5M per action.
+          </p>
         </div>
         <div style={{ borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa", padding: 12, textAlign: "center", minWidth: 100 }}>
-          <p style={{ fontSize: 10, color: "#6b7280", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Est. Resolution</p>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
+            <p style={{ fontSize: 10, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Est. Resolution</p>
+            <InfoTooltip text="Estimated business days based on complaint complexity, product type processing norms, and remediation steps required. Credit reporting corrections: ~30 days (legally mandated). Billing disputes: ~15–45 days. Mortgage issues: ~45–60 days." />
+          </div>
           <p style={{ fontSize: 28, fontWeight: 800, color: "#111827", lineHeight: 1 }}>{data.estimated_resolution_days}</p>
           <p style={{ fontSize: 10, color: "#6b7280" }}>business days</p>
         </div>
@@ -292,7 +309,10 @@ export function QualityCheckCard({ data }: { data: QualityCheckOutput }) {
           </text>
         </svg>
         <div>
-          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 8 }}>Overall confidence</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 8 }}>
+          <p style={{ fontSize: 12, color: "#4b5563", margin: 0 }}>Overall confidence</p>
+          <InfoTooltip text="Average of all six agents' self-reported certainty scores. Think of it like a team vote — if most agents are confident, the overall score is high. If any agent is uncertain, it pulls the average down." />
+        </div>
           <QualityBadge flag={data.quality_flag} size="lg" />
         </div>
       </div>

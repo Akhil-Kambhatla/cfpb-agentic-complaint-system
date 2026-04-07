@@ -129,7 +129,18 @@ export default function BatchUpload() {
     } catch (err) {
       stopFakeProgress();
       setPhase("error");
-      setErrorMsg(err instanceof Error ? err.message : "Processing failed");
+      const msg = err instanceof Error ? err.message : "Processing failed";
+      // Detect timeout / signal errors and show friendly message
+      if (
+        msg.toLowerCase().includes("timeout") ||
+        msg.toLowerCase().includes("timed out") ||
+        msg.toLowerCase().includes("signal") ||
+        msg.toLowerCase().includes("aborted")
+      ) {
+        setErrorMsg("Processing took longer than expected. Try fewer complaints (max 5 in demo mode).");
+      } else {
+        setErrorMsg(msg);
+      }
     }
   };
 
@@ -223,7 +234,10 @@ export default function BatchUpload() {
               Drag & drop a CSV, or click to browse
             </p>
             <p style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-              Max 20 complaints · Requires a <code style={{ fontFamily: "monospace", background: "#f3f4f6", padding: "1px 4px", borderRadius: 3 }}>narrative</code> column
+              Demo mode: max 5 complaints · Requires a <code style={{ fontFamily: "monospace", background: "#f3f4f6", padding: "1px 4px", borderRadius: 3 }}>narrative</code> column
+            </p>
+            <p style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>
+              Production deployment supports unlimited batches via queue.
             </p>
           </div>
         )}

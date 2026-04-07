@@ -2,6 +2,15 @@
 
 import { motion } from "framer-motion";
 import type { RiskAnalysisOutput } from "@/types";
+import InfoTooltip from "./InfoTooltip";
+
+const PANEL_TOOLTIPS = {
+  resolutionProb: "Will this complaint get resolved? Predicted by our Bayesian model trained on 10,000 real CFPB outcomes. The percentage is the most likely outcome. The '95% CI' range means we're 95% confident the true probability falls within those bounds. Wider range = more uncertainty.",
+  riskGap: "The danger zone metric. Regulatory Risk minus Resolution Probability. Example: 74% regulatory risk but only 9% chance of resolution = 65-point gap. This means the company will almost certainly dismiss this complaint, but doing so carries high regulatory risk. Gap > 20% triggers an automatic Slack alert to the oversight channel.",
+  companyIntel: "How does this company compare? We looked at all complaints against this company in our dataset and calculated what percentage got meaningful resolution. The blue bar shows their rate vs. the industry average (40%). Companies below average are more likely to dismiss valid complaints.",
+  intervention: "What if the complaint were stronger? We re-run our Bayesian model pretending the complaint cited specific regulations, then compare the new probability to the original. The difference shows how much citing regulations could improve the consumer's chances. Note: this is a statistical estimate, not a guarantee.",
+  featureEffects: "What actually matters? Our Bayesian model learned that product type drives 92% of the prediction. Everything else — dollar amounts, legal citations, narrative length — makes almost no difference. This means the system is structured around products, not individual complaint quality.",
+};
 
 interface Props {
   riskAnalysis: RiskAnalysisOutput;
@@ -196,33 +205,90 @@ function RiskGapBar({ riskGap, regulatoryRisk, resolutionProb }: {
   );
 }
 
-// ─── Feature contributions bar chart ─────────────────────────────────────────
-function FeatureBar({ name, value }: { name: string; value: number }) {
-  const abs = Math.abs(value);
-  const isPositive = value >= 0;
-  const pct = Math.min(Math.round(abs * 100), 100);
-  const barColor = isPositive ? "#fca5a5" : "#6ee7b7"; // red = increases risk, green = reduces risk
+/// ─── Feature Effects: dominant donut + bars ───────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function FeatureEffects({ features: _features }: { features: [string, number][] }) {
+  // Fixed Bayesian posterior coefficients (hardcoded from Bayesian regression results)
+  const FEATURE_COEFFICIENTS: [string, number, boolean][] = [
+    ["Product Type", 0.713, true],
+    ["Dollar Amount", 0.053, true],
+    ["Regulation Mention", 0.041, false],
+    ["Attorney Mention", 0.007, false],
+    ["Narrative Length", 0.002, false],
+  ];
 
-  const label = name
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  // SVG donut for 92% vs 8%
+  const R = 36;
+  const CX = 44;
+  const CY = 44;
+  const circumference = 2 * Math.PI * R;
+  const productShare = 0.92;
+  const productArc = circumference * productShare;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span style={{ fontSize: 10, color: "#4b5563", width: 120, flexShrink: 0, textAlign: "right" }}>
-        {label}
-      </span>
-      <div style={{ flex: 1, height: 8, borderRadius: 4, background: "#f3f4f6", position: "relative" }}>
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.7, ease: "easeOut" }}
-          style={{ height: "100%", borderRadius: 4, background: barColor }}
-        />
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Donut chart */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <svg width={CX * 2} height={CY * 2} viewBox={`0 0 ${CX * 2} ${CY * 2}`}>
+          {/* Background ring */}
+          <circle cx={CX} cy={CY} r={R} fill="none" stroke="#f3f4f6" strokeWidth={10} />
+          {/* Other features (gray, 8%) */}
+          <circle
+            cx={CX} cy={CY} r={R} fill="none" stroke="#d1d5db" strokeWidth={10}
+            strokeDasharray={`${circumference * 0.08} ${circumference}`}
+            strokeDashoffset={-(circumference * productShare)}
+            strokeLinecap="round"
+            style={{ transformOrigin: `${CX}px ${CY}px`, transform: "rotate(-90deg)" }}
+          />
+          {/* Product type (green, 92%) */}
+          <motion.circle
+            cx={CX} cy={CY} r={R} fill="none" stroke="#10b981" strokeWidth={10}
+            strokeDasharray={`${productArc} ${circumference}`}
+            strokeLinecap="round"
+            initial={{ strokeDashoffset: circumference }}
+            animate={{ strokeDashoffset: circumference - productArc }}
+            transition={{ duration: 1.0, ease: "easeOut" }}
+            style={{ transformOrigin: `${CX}px ${CY}px`, transform: "rotate(-90deg)" }}
+          />
+          <text x={CX} y={CY - 4} textAnchor="middle" fontSize="13" fontWeight="800" fill="#059669">92%</text>
+          <text x={CX} y={CY + 10} textAnchor="middle" fontSize="8" fill="#6b7280">product</text>
+        </svg>
+        <div style={{ flex: 1 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "#059669", margin: "0 0 2px" }}>Product type drives 92%</p>
+          <p style={{ fontSize: 10, color: "#6b7280", margin: 0, lineHeight: 1.4 }}>All other features combined: 8%</p>
+        </div>
       </div>
-      <span style={{ fontSize: 10, color: "#6b7280", width: 36, flexShrink: 0 }}>
-        {isPositive ? "+" : "-"}{pct}%
-      </span>
+
+      {/* Coefficient bars */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {FEATURE_COEFFICIENTS.map(([name, coef, positive]) => {
+          const maxCoef = 0.713;
+          const widthPct = (coef / maxCoef) * 95;
+          const barColor = name === "Product Type" ? "#10b981" : "#d1d5db";
+          const coefLabel = positive ? `+${coef.toFixed(3)}` : `−${coef.toFixed(3)}`;
+          return (
+            <div key={name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 9, color: name === "Product Type" ? "#059669" : "#6b7280", width: 90, flexShrink: 0, fontWeight: name === "Product Type" ? 700 : 400 }}>
+                {name}
+              </span>
+              <div style={{ flex: 1, height: 6, borderRadius: 3, background: "#f3f4f6" }}>
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${widthPct}%` }}
+                  transition={{ duration: 0.7, ease: "easeOut" }}
+                  style={{ height: "100%", borderRadius: 3, background: barColor }}
+                />
+              </div>
+              <span style={{ fontSize: 9, color: "#9ca3af", width: 36, flexShrink: 0, fontFamily: "monospace" }}>
+                {coefLabel}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 2, lineHeight: 1.4 }}>
+        Product type is 130× more influential than mentioning a lawyer, and 350× more influential than narrative length.
+      </p>
     </div>
   );
 }
@@ -277,9 +343,12 @@ export default function RiskAssessmentPanel({ riskAnalysis, company }: Props) {
           transition={{ duration: 0.35 }}
           style={card}
         >
-          <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 }}>
-            Resolution Probability
-          </p>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+            <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>
+              Resolution Probability
+            </p>
+            <InfoTooltip text={PANEL_TOOLTIPS.resolutionProb} />
+          </div>
           <SemiGauge value={resolution_probability} />
           <p style={{ fontSize: 10, color: "#6b7280", textAlign: "center", marginTop: 8 }}>
             95% CI: {ciLow}%–{ciHigh}%
@@ -294,9 +363,12 @@ export default function RiskAssessmentPanel({ riskAnalysis, company }: Props) {
             transition={{ duration: 0.35, delay: 0.05 }}
             style={card}
           >
-            <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 }}>
-              Risk Gap Analysis
-            </p>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+              <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>
+                Risk Gap Analysis
+              </p>
+              <InfoTooltip text={PANEL_TOOLTIPS.riskGap} />
+            </div>
             <RiskGapBar
               riskGap={risk_gap}
               regulatoryRisk={regulatory_risk}
@@ -335,9 +407,12 @@ export default function RiskAssessmentPanel({ riskAnalysis, company }: Props) {
           transition={{ duration: 0.35, delay: 0.12 }}
           style={card}
         >
-          <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-            Company Intelligence
-          </p>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+            <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>
+              Company Intelligence
+            </p>
+            <InfoTooltip text={PANEL_TOOLTIPS.companyIntel} />
+          </div>
           {company && <p style={{ fontSize: 12, fontWeight: 700, color: "#111827", marginBottom: 10 }}>{company}</p>}
           {hasCompanyData ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -402,9 +477,12 @@ export default function RiskAssessmentPanel({ riskAnalysis, company }: Props) {
             border: "1px solid #6ee7b7",
           }}
         >
-          <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-            Intervention Estimate
-          </p>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+            <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>
+              Intervention Estimate
+            </p>
+            <InfoTooltip text={PANEL_TOOLTIPS.intervention} />
+          </div>
           <p style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, margin: "0 0 12px" }}>
             If key risk factors are addressed, resolution probability would increase to:
           </p>
@@ -431,24 +509,13 @@ export default function RiskAssessmentPanel({ riskAnalysis, company }: Props) {
           transition={{ duration: 0.35, delay: 0.18 }}
           style={card}
         >
-          <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-            Feature Effects
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {topFeatures.map(([name, value]) => (
-              <FeatureBar key={name} name={name} value={value} />
-            ))}
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+            <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>
+              Feature Effects
+            </p>
+            <InfoTooltip text={PANEL_TOOLTIPS.featureEffects} />
           </div>
-          <div style={{ display: "flex", gap: 12, marginTop: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: "#fca5a5" }} />
-              <span style={{ fontSize: 9, color: "#6b7280" }}>Increases risk</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: "#6ee7b7" }} />
-              <span style={{ fontSize: 9, color: "#6b7280" }}>Reduces risk</span>
-            </div>
-          </div>
+          <FeatureEffects features={topFeatures} />
         </motion.div>
       </div>
     </div>

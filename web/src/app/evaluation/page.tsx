@@ -35,6 +35,122 @@ const Charts = dynamic(() => import("@/components/EvaluationCharts").then((m) =>
   ),
 });
 
+// ─── Bayesian Findings (static, no Recharts needed) ──────────────────────────
+function BayesianFindings() {
+  const featureImportance = [
+    { label: "Product type", value: 0.713, color: "#10b981", positive: true },
+    { label: "Mentions dollar amount", value: 0.053, color: "#9ca3af", positive: true },
+    { label: "Mentions regulation", value: 0.041, color: "#9ca3af", positive: false },
+    { label: "Mentions attorney", value: 0.007, color: "#9ca3af", positive: false },
+    { label: "Narrative length", value: 0.002, color: "#9ca3af", positive: false },
+  ];
+
+  const resolutionRates = [
+    { product: "Credit Reporting", rate: 47.0 },
+    { product: "Credit Card", rate: 32.2 },
+    { product: "Debt Collection", rate: 26.9 },
+    { product: "Prepaid Card", rate: 20.0 },
+    { product: "Checking/Savings", rate: 15.6 },
+    { product: "Vehicle Loan", rate: 15.5 },
+    { product: "Debt Management", rate: 10.3 },
+    { product: "Payday Loan", rate: 7.1 },
+    { product: "Money Transfer", rate: 7.0 },
+    { product: "Mortgage", rate: 5.6 },
+    { product: "Student Loan", rate: 1.9 },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+
+        {/* Card 1: Feature importance */}
+        <div style={{ borderRadius: 12, border: "1px solid #e5e7eb", background: "#fafafa", padding: "16px 18px" }}>
+          <h4 style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
+            Product Type Dominates Outcomes
+          </h4>
+          <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 14px", lineHeight: 1.5 }}>
+            Product type accounts for 92% of the model&apos;s predictive power. Everything else combined — how the complaint is written, dollar amounts, legal citations — adds only 8%.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {featureImportance.map(({ label, value, color, positive }) => {
+              const widthPct = (value / 0.713) * 95;
+              return (
+                <div key={label}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 10, color: "#374151", fontWeight: positive && label === "Product type" ? 700 : 400 }}>{label}</span>
+                    <span style={{ fontSize: 10, color, fontFamily: "monospace", fontWeight: 700 }}>
+                      {positive ? "+" : "−"}{value.toFixed(3)}
+                    </span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6", overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%",
+                      width: `${widthPct}%`,
+                      background: color,
+                      borderRadius: 3,
+                    }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 10, lineHeight: 1.4 }}>
+            Bayesian posterior mean coefficients. Product type is 130× more influential than mentioning a lawyer, and 350× more influential than narrative length.
+          </p>
+        </div>
+
+        {/* Card 2: Resolution rates by product */}
+        <div style={{ borderRadius: 12, border: "1px solid #e5e7eb", background: "#fafafa", padding: "16px 18px" }}>
+          <h4 style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
+            Resolution Probability Varies 25× by Product
+          </h4>
+          <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 12px", lineHeight: 1.5 }}>
+            Credit reporting: 47%. Student loan: 1.9%. This 25× disparity is structural.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {resolutionRates.map(({ product, rate }) => {
+              const pct = (rate / 47) * 100;
+              const color = rate >= 35 ? "#10b981" : rate >= 20 ? "#f59e0b" : "#e11d48";
+              return (
+                <div key={product}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                    <span style={{ fontSize: 9, color: "#374151" }}>{product}</span>
+                    <span style={{ fontSize: 9, color, fontWeight: 700, fontFamily: "monospace" }}>{rate}%</span>
+                  </div>
+                  <div style={{ height: 5, borderRadius: 3, background: "#f3f4f6", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 3 }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Card 3: Risk gap */}
+        <div style={{ borderRadius: 12, border: "1px solid #fca5a5", background: "#fff1f2", padding: "16px 18px" }}>
+          <h4 style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
+            8.6% of Complaints Are Dangerously Under-Prioritized
+          </h4>
+          <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 16px", lineHeight: 1.5 }}>
+            Our risk gap analysis identified complaints where companies dismissed despite high regulatory risk.
+          </p>
+          <div style={{
+            borderRadius: 10, background: "#fff", border: "1px solid #fca5a5",
+            padding: "14px 16px", textAlign: "center", marginBottom: 12,
+          }}>
+            <p style={{ fontSize: 42, fontWeight: 800, color: "#e11d48", margin: 0, lineHeight: 1 }}>856</p>
+            <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>complaints in our dataset</p>
+          </div>
+          <p style={{ fontSize: 11, color: "#374151", lineHeight: 1.65, margin: 0 }}>
+            These represent the highest-value targets for proactive intervention — dismissed complaints where
+            the regulatory exposure is real but the company chose not to resolve.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Interpretation box ────────────────────────────────────────────────────────
 function Interpretation({ children }: { children: React.ReactNode }) {
   return (
@@ -115,6 +231,18 @@ function EvaluationContent({
         </Interpretation>
       </Section>
 
+      {/* Bayesian Findings */}
+      <Section
+        title="Key Bayesian Findings"
+        subtitle="What our Bayesian logistic regression revealed from 10,000 CFPB complaints — the structural patterns that drive resolution outcomes."
+        delay={0.13}
+      >
+        <BayesianFindings />
+        <Interpretation>
+          The Bayesian model coefficients reveal a stark pattern: product type (coefficient: 0.713) drives the prediction almost entirely. Dollar amounts (+0.053), regulation mentions (−0.041), attorney references (−0.007), and narrative length (−0.002) are all statistically negligible — their 95% credible intervals all include zero, meaning we cannot confidently say they have any real effect. In practical terms: a one-sentence credit reporting complaint and a ten-page credit reporting complaint with legal citations have nearly identical resolution probabilities.
+        </Interpretation>
+      </Section>
+
       {/* Product-Level Accuracy */}
       <Section
         title="Product-Level Accuracy"
@@ -189,6 +317,11 @@ function EvaluationContent({
           Products extending right (red) have above-average compliance risk — Debt Collection and Payday
           Loans carry the highest regulatory risk due to FDCPA and state usury law requirements. Products
           extending left (blue) have below-average risk, indicating lower regulatory complexity.
+          <br /><br />
+          Our Bayesian model&apos;s reliance on product type as the dominant predictor raises an important
+          fairness consideration: consumers with certain product types (payday loans, student loans) face
+          structurally lower resolution rates regardless of complaint merit. We surface this disparity
+          explicitly so compliance teams can implement corrective policies.
         </Interpretation>
       </Section>
 

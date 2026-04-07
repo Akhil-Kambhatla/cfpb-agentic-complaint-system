@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import type { ClassificationOutput, RoutingOutput, QualityCheckOutput } from "@/types";
+import InfoTooltip from "./InfoTooltip";
 
 interface Props {
   classification: ClassificationOutput;
@@ -23,6 +24,13 @@ const PRIORITY_STYLE = {
   P4: { bg: "#f3f4f6", text: "#6b7280", border: "#e5e7eb" },
 };
 
+const METRIC_TOOLTIPS: Record<string, string> = {
+  Severity: "How serious is this complaint? The AI assesses financial harm, emotional distress, misconduct patterns, and rights violations from the narrative. Low = minor inconvenience. Medium = financial impact. High = significant harm. Critical = clear regulatory violation with substantial harm.",
+  "Compliance Risk": "Likelihood this complaint involves a regulatory violation. Scored 0–100% based on: product type risk level (+15–30%), mentions of specific regulations (+20%), mentions of attorneys (+15%), and repeated failed contact attempts (+10%). Higher = more likely a regulator would find a violation.",
+  Priority: "How urgently this needs attention. P1 = immediate (risk gap > 30%). P2 = same-day (risk gap > 15%). P3 = standard (risk gap > 5%). P4 = routine. Combines severity, compliance risk, and risk gap.",
+  Confidence: "How reliable is this analysis? Average of all six agents' self-assessed certainty. Above 85% = high confidence. 70–85% = moderate. Below 70% = human review recommended. The ⚠ icon flags low-confidence results.",
+};
+
 function MetricCard({ label, children, delay }: { label: string; children: React.ReactNode; delay: number }) {
   return (
     <motion.div
@@ -35,9 +43,12 @@ function MetricCard({ label, children, delay }: { label: string; children: React
         padding: "16px 18px",
       }}
     >
-      <p style={{ fontSize: 10, color: "#9ca3af", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-        {label}
-      </p>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+        <p style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>
+          {label}
+        </p>
+        {METRIC_TOOLTIPS[label] && <InfoTooltip text={METRIC_TOOLTIPS[label]} />}
+      </div>
       {children}
     </motion.div>
   );
