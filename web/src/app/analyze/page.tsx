@@ -657,7 +657,7 @@ export default function AnalyzePage() {
             </div>
             <div style={{ textAlign: "left" }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: "#111827", margin: 0 }}>Batch Processing</p>
-              <p style={{ fontSize: 11, color: "#6b7280", margin: 0 }}>Upload a CSV to analyze up to 20 complaints at once</p>
+              <p style={{ fontSize: 11, color: "#6b7280", margin: 0 }}>Upload a CSV to analyze up to 5 complaints at once</p>
             </div>
           </div>
           {batchOpen ? (

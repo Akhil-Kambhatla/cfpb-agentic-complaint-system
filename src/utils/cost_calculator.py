@@ -1,12 +1,16 @@
 """Estimate API costs and ROI for processing CFPB complaints."""
 
-# Claude Sonnet pricing (per token)
+# Claude Sonnet pricing (per token) — Anthropic pricing, April 2026
 COST_PER_INPUT_TOKEN = 3.0 / 1_000_000   # $3/M input tokens
 COST_PER_OUTPUT_TOKEN = 15.0 / 1_000_000  # $15/M output tokens
 
 # Average token usage per complaint across all 6 agents
+# Total: 2000 * $3/M = $0.006 input + 3000 * $15/M = $0.045 output = $0.051/complaint
 AVG_INPUT_TOKENS_PER_COMPLAINT = 2000
 AVG_OUTPUT_TOKENS_PER_COMPLAINT = 3000
+
+# Derived cost per complaint for reference (not a constant — computed in estimate_cost)
+# COST_PER_COMPLAINT = $0.051
 
 # Average observed pipeline latency
 AVG_PROCESSING_TIME_SECONDS = 8.4

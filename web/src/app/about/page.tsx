@@ -145,7 +145,7 @@ function TeamCard({ name }: { name: string }) {
 function ROICalculator() {
   const [volume, setVolume] = useState(5000);
 
-  const annualSystemCost = Math.round(volume * 12 * 0.0051 + 600);
+  const annualSystemCost = Math.round(volume * 12 * 0.051 + 840); // API + hosting + monitoring
   const highRiskCaught = Math.round(volume * 12 * 0.086);
   const exposureAvoided = highRiskCaught * 50000;
   const roi = Math.round(((exposureAvoided - annualSystemCost) / annualSystemCost) * 100);
@@ -194,9 +194,10 @@ function ROICalculator() {
       </div>
 
       <p style={{ fontSize: 12, color: "#6b7280", marginTop: 16, lineHeight: 1.7 }}>
-        Conservative estimate assumes $50K average regulatory impact per mishandled high-risk complaint.
-        CFPB enforcement actions in 2024 averaged $500K–$5M per action. Even catching one
-        enforcement-level complaint per year pays for the system 300× over.
+        <strong>Important context:</strong> This is an expected-value calculation. Not every dismissed complaint triggers regulatory action — the probability per complaint is low. However, CFPB enforcement actions in 2024 ranged from $100K to over $5M per action (source: CFPB 2024 Consumer Response Annual Report). The &ldquo;$50K average regulatory impact&rdquo; is our conservative estimate that weights the low probability of enforcement against the high cost when it occurs. If the system prevents even one enforcement action per year, the ROI exceeds 70× at the corrected annual cost of ~$6,960 for 10K complaints/month.
+      </p>
+      <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 8 }}>
+        Cost: $0.051/complaint ($0.006 input + $0.045 output at Claude Sonnet pricing). Source: Anthropic API pricing, April 2026.
       </p>
     </div>
   );
@@ -256,11 +257,21 @@ export default function AboutPage() {
       <SectionWrapper bg="#f9fafb">
         <SectionTitle>The $2.9 Billion Problem</SectionTitle>
 
-        <div style={{ display: "flex", gap: 16, marginBottom: 32, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
           <BigStatCard end={14} suffix="M+" label="complaints in the CFPB database" color="#0ea5e9" />
           <BigStatCard end={2.9} suffix="B" prefix="$" label="complaint management software market (2026)" color="#7c3aed" decimals={1} />
           <BigStatCard end={59} suffix="%" label="of complaints closed with just an explanation" color="#f97316" />
           <BigStatCard end={8.6} suffix="%" label="of dismissed complaints carry high regulatory risk" color="#e11d48" decimals={1} />
+        </div>
+        <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
+          {[
+            "14M+: CFPB Consumer Complaint Database, 2011–2025",
+            "$2.9B: Research and Markets, Global Forecast 2026",
+            "59%: Our 10K-complaint dataset (2024+)",
+            "8.6%: Risk gap analysis on our 10K-complaint dataset",
+          ].map((s) => (
+            <p key={s} style={{ fontSize: 10, color: "#9ca3af", margin: 0, flex: 1, minWidth: 160 }}>Source: {s}</p>
+          ))}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -418,7 +429,7 @@ export default function AboutPage() {
             </thead>
             <tbody>
               {[
-                { item: "Claude API (10,000 complaints/month)", monthly: "$51", annual: "$612" },
+                { item: "Claude API (10,000 complaints/month @ $0.051/complaint)", monthly: "$510", annual: "$6,120" },
                 { item: "Cloud hosting (FastAPI + Next.js)", monthly: "$50", annual: "$600" },
                 { item: "Monitoring & logging", monthly: "$20", annual: "$240" },
               ].map(({ item, monthly, annual }) => (
@@ -430,14 +441,13 @@ export default function AboutPage() {
               ))}
               <tr style={{ borderTop: "2px solid #e5e7eb", background: "#f9fafb" }}>
                 <td style={{ padding: "10px 12px", fontWeight: 700, color: "#111827" }}>Total operational cost</td>
-                <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, color: "#10b981", fontFamily: "monospace" }}>$121</td>
-                <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, color: "#10b981", fontFamily: "monospace" }}>$1,452</td>
+                <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, color: "#10b981", fontFamily: "monospace" }}>$580</td>
+                <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, color: "#10b981", fontFamily: "monospace" }}>$6,960</td>
               </tr>
             </tbody>
           </table>
           <p style={{ fontSize: 11, color: "#6b7280", marginTop: 12, lineHeight: 1.7 }}>
-            Costs based on Claude Sonnet at $3/M input + $15/M output tokens. Each complaint averages
-            5,000 tokens across 6 agents. No GPU infrastructure required — runs on standard cloud compute.
+            Cost per complaint: ~2,000 input tokens × $3/M + ~3,000 output tokens × $15/M = <strong>$0.051/complaint</strong>. Averaged across 6 agents. Source: Anthropic API pricing, April 2026. No GPU infrastructure required.
           </p>
         </Card>
       </SectionWrapper>
@@ -456,10 +466,10 @@ export default function AboutPage() {
           <ul style={{ margin: 0, padding: "0 0 0 16px", display: "flex", flexDirection: "column", gap: 4 }}>
             {[
               "Parallel processing infrastructure adds ~$200–500/month (message queues, worker processes)",
-              "Anthropic API rate limits may require an upgraded plan for sustained throughput",
+              "Anthropic API rate limits may require an upgraded plan for sustained throughput at 50K+ complaints/month",
               "A dedicated monitoring dashboard adds ~$100/month",
-              "Estimated total cost at 50,000/month: ~$800/month — still a fraction of the regulatory exposure avoided",
-              "At enterprise scale, the cost per complaint drops to under $0.01 due to infrastructure amortization",
+              "At 50,000 complaints/month: API cost ~$2,550 + infrastructure ~$800 = ~$3,350/month total",
+              "Per-complaint API cost stays at ~$0.051 regardless of scale — Anthropic doesn't offer volume discounts at this tier",
             ].map((item) => (
               <li key={item} style={{ fontSize: 12, color: "#4b5563", lineHeight: 1.65 }}>• {item}</li>
             ))}
@@ -476,10 +486,10 @@ export default function AboutPage() {
         <Card style={{ padding: "24px 28px" }}>
           {/* Header row */}
           <div style={{
-            display: "grid", gridTemplateColumns: "200px 1fr 1.5fr", gap: 20,
+            display: "grid", gridTemplateColumns: "180px 1fr 1fr 1fr", gap: 16,
             paddingBottom: 12, borderBottom: "2px solid #e5e7eb",
           }}>
-            {["Risk", "Impact", "Mitigation"].map((h) => (
+            {["Risk", "Impact", "Built (current)", "Production Enhancement"].map((h) => (
               <p key={h} style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>{h}</p>
             ))}
           </div>
@@ -487,38 +497,50 @@ export default function AboutPage() {
           {[
             {
               risk: "Demographic bias in predictions",
-              impact: "Product-type-driven predictions could disadvantage consumers in certain product categories (e.g., payday loans have lowest resolution rates).",
-              mitigation: "System flags product-level bias in evaluation metrics. Fairness analysis built into the evaluation dashboard. Human review threshold ensures low-confidence predictions are checked.",
+              impact: "Product-type-driven predictions structurally disadvantage consumers in low-resolution categories (e.g., student loans: 1.9% resolution rate vs. credit reporting: 47%).",
+              current: "Evaluation dashboard shows per-product resolution disparities. Human review flags low-confidence predictions.",
+              future: "Fairness audits across demographic groups (requires demographic data we don't currently have). Per-product resolution targets.",
             },
             {
               risk: "Over-reliance on automation",
-              impact: "Teams may blindly follow AI recommendations without critical thinking.",
-              mitigation: "Human-in-the-loop design: agents below 70% confidence are flagged. Quality Check agent validates consistency. System generates recommendations, not decisions.",
+              impact: "Teams may act on AI recommendations without critical review, especially for P1 complaints.",
+              current: "Agents below 70% confidence flagged for human review. Quality Check validates cross-agent consistency. All outputs labeled as recommendations.",
+              future: "Mandatory human approval workflow for P1 complaints. Audit trail for every automated decision.",
             },
             {
               risk: "Gaming the system",
-              impact: "Companies could strategically resolve only complaints that would trigger regulatory scrutiny, ignoring others.",
-              mitigation: "We track resolution patterns over time. The system flags companies whose resolution rate suddenly changes, suggesting strategic behavior rather than genuine improvement.",
+              impact: "Companies could selectively resolve complaints that trigger high risk scores while ignoring others.",
+              current: "Not currently addressed in the system.",
+              future: "Temporal monitoring of company resolution patterns. Alert when a company's resolution rate changes suddenly.",
             },
             {
               risk: "Privacy concerns",
-              impact: "Complaint narratives contain sensitive consumer information.",
-              mitigation: "System processes data in transit only — no complaint text is stored after analysis. All processing uses CFPB's already-scrubbed narratives. Slack alerts contain excerpts only, not full text.",
+              impact: "Complaint narratives can contain sensitive personal and financial details.",
+              current: "Processes CFPB's pre-scrubbed public data only. Slack alerts contain excerpts only, not full narratives.",
+              future: "PII scrubbing pipeline for raw intake data. Data retention policies. SOC2 compliance review.",
             },
             {
               risk: "Model drift",
-              impact: "Bayesian model trained on 2024 data may become stale as complaint patterns change.",
-              mitigation: "The model can be retrained monthly on fresh CFPB data. The architecture supports model versioning and A/B testing. Monitoring dashboard tracks prediction accuracy over time.",
+              impact: "Bayesian model trained on 2024 snapshot may become inaccurate as complaint patterns change.",
+              current: "Static model — no automated retraining. Fixed coefficients from initial training run.",
+              future: "Quarterly retraining on fresh CFPB data. Model versioning. Accuracy monitoring dashboard.",
             },
-          ].map(({ risk, impact, mitigation }, i, arr) => (
+          ].map(({ risk, impact, current, future }, i, arr) => (
             <div key={risk} style={{
-              display: "grid", gridTemplateColumns: "200px 1fr 1.5fr", gap: 20,
+              display: "grid", gridTemplateColumns: "180px 1fr 1fr 1fr", gap: 16,
               padding: "16px 0",
               borderBottom: i < arr.length - 1 ? "1px solid #f3f4f6" : "none",
             }}>
               <p style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: 0 }}>{risk}</p>
               <p style={{ fontSize: 12, color: "#374151", margin: 0, lineHeight: 1.65 }}>{impact}</p>
-              <p style={{ fontSize: 12, color: "#374151", margin: 0, lineHeight: 1.65 }}>{mitigation}</p>
+              <p style={{ fontSize: 12, color: "#374151", margin: 0, lineHeight: 1.65 }}>
+                <span style={{ display: "inline-block", background: "#d1fae5", color: "#065f46", borderRadius: 4, padding: "1px 5px", fontSize: 10, fontWeight: 700, marginBottom: 4 }}>BUILT</span>
+                <br />{current}
+              </p>
+              <p style={{ fontSize: 12, color: "#374151", margin: 0, lineHeight: 1.65 }}>
+                <span style={{ display: "inline-block", background: "#e0f2fe", color: "#0369a1", borderRadius: 4, padding: "1px 5px", fontSize: 10, fontWeight: 700, marginBottom: 4 }}>FUTURE</span>
+                <br />{future}
+              </p>
             </div>
           ))}
         </Card>
@@ -604,10 +626,10 @@ export default function AboutPage() {
                   { label: "Slack (#team-billing)", desc: "real-time routing alerts" },
                   { label: "Slack (#team-compliance)", desc: "high-risk escalations" },
                   { label: "Slack (#cfpb-alerts)", desc: "oversight channel" },
+                  { label: "Email", desc: "customer response letters (draft)" },
                   { label: "Salesforce", desc: "AI fields written back to case" },
                   { label: "CSV / Excel export", desc: "batch results download" },
                   { label: "Compliance dashboard", desc: "web-based monitoring" },
-                  { label: "Regulatory reporting", desc: "audit trail export" },
                 ].map(({ label, desc }) => (
                   <div key={label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <ArrowRight style={{ width: 13, height: 13, color: "#9ca3af", flexShrink: 0 }} />

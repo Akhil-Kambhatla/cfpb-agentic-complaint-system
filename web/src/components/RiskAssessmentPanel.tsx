@@ -7,7 +7,7 @@ import InfoTooltip from "./InfoTooltip";
 const PANEL_TOOLTIPS = {
   resolutionProb: "Will this complaint get resolved? Predicted by our Bayesian model trained on 10,000 real CFPB outcomes. The percentage is the most likely outcome. The '95% CI' range means we're 95% confident the true probability falls within those bounds. Wider range = more uncertainty.",
   riskGap: "The danger zone metric. Regulatory Risk minus Resolution Probability. Example: 74% regulatory risk but only 9% chance of resolution = 65-point gap. This means the company will almost certainly dismiss this complaint, but doing so carries high regulatory risk. Gap > 20% triggers an automatic Slack alert to the oversight channel.",
-  companyIntel: "How does this company compare? We looked at all complaints against this company in our dataset and calculated what percentage got meaningful resolution. The blue bar shows their rate vs. the industry average (40%). Companies below average are more likely to dismiss valid complaints.",
+  companyIntel: "How does this company compare? We looked at all complaints against this company in our 10K-complaint dataset and calculated what percentage got meaningful resolution. The blue bar shows their rate vs. the dataset average (40.4% across our 10,000 complaints). Companies below average are more likely to dismiss valid complaints.",
   intervention: "What if the complaint were stronger? We re-run our Bayesian model pretending the complaint cited specific regulations, then compare the new probability to the original. The difference shows how much citing regulations could improve the consumer's chances. Note: this is a statistical estimate, not a guarantee.",
   featureEffects: "What actually matters? Our Bayesian model learned that product type drives 92% of the prediction. Everything else — dollar amounts, legal citations, narrative length — makes almost no difference. This means the system is structured around products, not individual complaint quality.",
 };
@@ -432,7 +432,7 @@ export default function RiskAssessmentPanel({ riskAnalysis, company }: Props) {
               </div>
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 10, color: "#4b5563" }}>Industry avg</span>
+                  <span style={{ fontSize: 10, color: "#4b5563" }}>Dataset avg</span>
                   <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{industryRate}%</span>
                 </div>
                 <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6" }}>
@@ -448,7 +448,7 @@ export default function RiskAssessmentPanel({ riskAnalysis, company }: Props) {
           ) : (
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontSize: 10, color: "#4b5563" }}>Product baseline</span>
+                <span style={{ fontSize: 10, color: "#4b5563" }}>Dataset avg</span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{industryRate}%</span>
               </div>
               <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6" }}>

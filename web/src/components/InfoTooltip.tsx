@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 interface Props {
   text: string;
@@ -8,11 +8,23 @@ interface Props {
 
 export default function InfoTooltip({ text }: Props) {
   const [visible, setVisible] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
+  const [position, setPosition] = useState<{ top: boolean; left: boolean }>({ top: true, left: false });
+  const iconRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!visible || !iconRef.current) return;
+    const rect = iconRef.current.getBoundingClientRect();
+    const spaceRight = window.innerWidth - rect.right;
+    const spaceTop = rect.top;
+    setPosition({
+      top: spaceTop > 120,
+      left: spaceRight < 320,
+    });
+  }, [visible]);
 
   return (
     <span
-      ref={ref}
+      ref={iconRef}
       style={{ position: "relative", display: "inline-flex", alignItems: "center", verticalAlign: "middle" }}
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}
@@ -32,45 +44,35 @@ export default function InfoTooltip({ text }: Props) {
       {/* Tooltip card */}
       {visible && (
         <span style={{
-          position: "absolute",
-          bottom: "calc(100% + 8px)",
-          left: "50%",
-          transform: "translateX(-50%)",
+          position: "fixed",
           zIndex: 9999,
-          width: 300,
+          width: 360,
+          maxWidth: "calc(100vw - 32px)",
           background: "#ffffff",
           border: "1px solid #e5e7eb",
           borderRadius: 10,
-          boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
-          padding: "10px 12px",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+          padding: "10px 14px",
           fontSize: 11,
           color: "#374151",
-          lineHeight: 1.6,
+          lineHeight: 1.65,
           whiteSpace: "normal",
+          overflowWrap: "break-word",
           pointerEvents: "none",
+          // Position relative to the viewport using getBoundingClientRect
+          top: (() => {
+            if (!iconRef.current) return 0;
+            const r = iconRef.current.getBoundingClientRect();
+            return position.top ? r.top - 8 : r.bottom + 8;
+          })(),
+          left: (() => {
+            if (!iconRef.current) return 0;
+            const r = iconRef.current.getBoundingClientRect();
+            return position.left ? r.right - 360 : r.left - 8;
+          })(),
+          transform: position.top ? "translateY(-100%)" : "translateY(0)",
         }}>
           {text}
-          {/* Arrow */}
-          <span style={{
-            position: "absolute",
-            top: "100%",
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: 0, height: 0,
-            borderLeft: "6px solid transparent",
-            borderRight: "6px solid transparent",
-            borderTop: "6px solid #e5e7eb",
-          }} />
-          <span style={{
-            position: "absolute",
-            top: "calc(100% - 1px)",
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: 0, height: 0,
-            borderLeft: "5px solid transparent",
-            borderRight: "5px solid transparent",
-            borderTop: "5px solid #ffffff",
-          }} />
         </span>
       )}
     </span>

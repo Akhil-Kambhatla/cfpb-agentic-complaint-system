@@ -70,41 +70,13 @@ def _safe_dict(obj: Any) -> dict:
 
 
 def _run_full_pipeline(complaint: ComplaintInput) -> dict:
-    """Run all 6 agents synchronously. Returns result dict."""
+    """Run all 6 agents synchronously. Returns result dict. Does NOT send Slack — callers handle that."""
     classification = ClassifierAgent().run(complaint)
     risk = RiskAnalyzerAgent().run(complaint, classification)
     event_chain = EventChainAgent().run(complaint, classification)
     routing = RouterAgent().run(complaint, classification, event_chain, risk)
     resolution = ResolutionAgent().run(complaint, classification, event_chain, routing, risk)
     quality = QualityCheckAgent().run(complaint, classification, event_chain, routing, resolution, risk)
-
-    summary = {
-        "product": classification.predicted_product,
-        "issue": classification.predicted_issue,
-        "severity": classification.severity,
-        "risk_gap": risk.risk_gap,
-        "resolution_probability": risk.resolution_probability,
-        "resolution_ci": [risk.credible_interval_lower, risk.credible_interval_upper],
-        "assigned_team": routing.assigned_team,
-        "priority": routing.priority_level,
-        "company": complaint.company,
-        "narrative_preview": complaint.narrative[:300],
-        "remediation_steps": resolution.remediation_steps,
-        "applicable_regulations": resolution.applicable_regulations,
-    }
-
-    # Always send team routing alert
-    team = routing.assigned_team
-    logger.info(f"[PIPELINE] Router assigned: {team}, sending team alert...")
-    team_sent = send_team_routing_alert(summary, team)
-    logger.info(f"[PIPELINE] Team alert sent: {team_sent}")
-
-    # Send high-risk alert to #cfpb-alerts only if risk gap > threshold
-    slack_sent = False
-    if risk.risk_gap > HIGH_RISK_THRESHOLD:
-        logger.info(f"[PIPELINE] risk_gap={risk.risk_gap:.2f} > threshold={HIGH_RISK_THRESHOLD}, sending high-risk alert...")
-        slack_sent = send_slack_alert(summary)
-        logger.info(f"[PIPELINE] High-risk Slack alert sent: {slack_sent}")
 
     return {
         "complaint": _safe_dict(complaint),
@@ -114,9 +86,44 @@ def _run_full_pipeline(complaint: ComplaintInput) -> dict:
         "routing": _safe_dict(routing),
         "resolution": _safe_dict(resolution),
         "quality_check": _safe_dict(quality),
-        "slack_alert_sent": slack_sent,
-        "team_alert_sent": team_sent,
     }
+
+
+def _send_slack_alerts(result: dict) -> tuple[bool, bool]:
+    """Send Slack alerts for a completed pipeline result. Returns (team_sent, high_risk_sent)."""
+    cls = result["classification"]
+    risk = result["risk_analysis"]
+    routing = result["routing"]
+    resolution = result["resolution"]
+    complaint = result["complaint"]
+
+    summary = {
+        "product": cls.get("predicted_product", ""),
+        "issue": cls.get("predicted_issue", ""),
+        "severity": cls.get("severity", ""),
+        "risk_gap": risk.get("risk_gap", 0.0),
+        "resolution_probability": risk.get("resolution_probability", 0.0),
+        "resolution_ci": [risk.get("credible_interval_lower", 0.0), risk.get("credible_interval_upper", 0.0)],
+        "assigned_team": routing.get("assigned_team", ""),
+        "priority": routing.get("priority_level", ""),
+        "company": complaint.get("company"),
+        "narrative_preview": (complaint.get("narrative") or "")[:300],
+        "remediation_steps": resolution.get("remediation_steps", []),
+        "applicable_regulations": resolution.get("applicable_regulations", []),
+    }
+
+    team = routing.get("assigned_team", "")
+    logger.info(f"[SLACK] Sending team alert to: {team}")
+    team_sent = send_team_routing_alert(summary, team)
+    logger.info(f"[SLACK] Team alert sent: {team_sent}")
+
+    slack_sent = False
+    if risk.get("risk_gap", 0.0) > HIGH_RISK_THRESHOLD:
+        logger.info(f"[SLACK] risk_gap={risk.get('risk_gap', 0):.2f} > threshold, sending high-risk alert")
+        slack_sent = send_slack_alert(summary)
+        logger.info(f"[SLACK] High-risk alert sent: {slack_sent}")
+
+    return team_sent, slack_sent
 
 
 # ──────────────────────────────────────────────
@@ -285,6 +292,7 @@ async def analyze_batch(req: BatchAnalyzeRequest):
                     return _run_full_pipeline(c)
 
                 result = await loop.run_in_executor(None, _run)
+                await loop.run_in_executor(None, lambda r=result: _send_slack_alerts(r))
                 yield {"data": json.dumps({
                     "event": "batch_item_complete", "index": idx,
                     "narrative_preview": item.narrative[:80] + "…",
@@ -354,6 +362,9 @@ async def analyze_batch_csv(file: UploadFile = File(...)):
 
         try:
             result = await loop.run_in_executor(None, lambda c=complaint: _run_full_pipeline(c))
+            team_sent, slack_sent = await loop.run_in_executor(None, lambda r=result: _send_slack_alerts(r))
+            result["slack_alert_sent"] = slack_sent
+            result["team_alert_sent"] = team_sent
             results.append({
                 "row": int(idx),
                 "narrative_preview": narrative[:100] + ("…" if len(narrative) > 100 else ""),
@@ -372,6 +383,7 @@ async def analyze_batch_csv(file: UploadFile = File(...)):
             "product": r["classification"]["predicted_product"],
             "issue": r["classification"]["predicted_issue"],
             "severity": r["classification"]["severity"],
+            "compliance_risk_score": r["classification"].get("compliance_risk_score", ""),
             "risk_gap": r["risk_analysis"]["risk_gap"],
             "resolution_probability": r["risk_analysis"]["resolution_probability"],
             "resolution_ci": [
@@ -425,6 +437,9 @@ async def analyze_simple(req: AnalyzeRequest):
 
     try:
         result = await loop.run_in_executor(None, lambda: _run_full_pipeline(complaint))
+        team_sent, slack_sent = await loop.run_in_executor(None, lambda: _send_slack_alerts(result))
+        result["slack_alert_sent"] = slack_sent
+        result["team_alert_sent"] = team_sent
         return JSONResponse(content=result)
     except Exception as exc:
         logger.error(f"Pipeline error: {exc}", exc_info=True)
@@ -716,7 +731,7 @@ async def export_results(payload: dict):
             row_product = r.get("product", "")
             row_issue = r.get("issue", "")
             row_severity = r.get("severity", "")
-            row_compliance = ""
+            row_compliance = r.get("compliance_risk_score", "")
             row_res_prob = r.get("resolution_probability", "")
             ci = r.get("resolution_ci", [None, None])
             row_ci_lower = ci[0] if ci else ""

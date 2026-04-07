@@ -2,7 +2,15 @@
 
 import { useCallback, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, Download, FileText, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { Upload, Download, FileText, AlertTriangle, CheckCircle2, Loader2, Database } from "lucide-react";
+
+const DEMO_NARRATIVES = [
+  "I keep receiving calls about a debt I already paid in full over a year ago. I have sent proof of payment three times — bank statements and a receipt from the original creditor — but the calls continue. They have now reported this debt to all three credit bureaus, dropping my score by 85 points.",
+  "I deposited $2,500 cash at a Chase branch. The teller ran the money through the counter but the screen showed $1,300 instead of $2,500. After 45 minutes of waiting for the manager to balance the drawer, they confirmed only $1,300. I am missing $1,200 and my claim was denied.",
+  "My mortgage company force-placed an insurance policy on our home for $3,200 after a brief coverage lapse, even after we sent proof of new insurance. They added this to our escrow and our monthly payment increased by $267. When we call, each representative tells us something different.",
+  "I booked a hotel through my Citi credit card travel portal. My flight was delayed due to weather and I could not check in on time. By the next morning the hotel had charged me the full $850 room rate. I filed a billing dispute with Citi and after 45 days they ruled it was my responsibility without providing investigation documents.",
+  "My bank charged me 6 overdraft fees totaling $210 even though I opted out of overdraft coverage when I opened the account two years ago. I have a confirmation email showing my opt-out election. The bank claims there is no record of this despite my documentation.",
+];
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -89,6 +97,15 @@ export default function BatchUpload() {
   const stopFakeProgress = () => {
     if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     setProgress(100);
+  };
+
+  const loadDemoDataset = () => {
+    // Build a CSV blob from the demo narratives
+    const header = "narrative\n";
+    const rows = DEMO_NARRATIVES.map((n) => `"${n.replace(/"/g, '""')}"`).join("\n");
+    const blob = new Blob([header + rows], { type: "text/csv" });
+    const demoFile = new File([blob], "demo_complaints.csv", { type: "text/csv" });
+    handleFile(demoFile);
   };
 
   const handleProcess = async () => {
@@ -266,6 +283,19 @@ export default function BatchUpload() {
           )}
           {phase === "processing" ? "Processing…" : "Process Batch"}
         </motion.button>
+
+        <button
+          onClick={loadDemoDataset}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "8px 14px", borderRadius: 9,
+            border: "1px solid #c7d2fe", background: "#eef2ff",
+            color: "#4338ca", fontSize: 12, cursor: "pointer",
+          }}
+        >
+          <Database style={{ width: 13, height: 13 }} />
+          Load Demo Dataset
+        </button>
 
         <button
           onClick={downloadTemplate}
