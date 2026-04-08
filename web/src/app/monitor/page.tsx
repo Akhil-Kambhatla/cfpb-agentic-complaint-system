@@ -1,0 +1,1473 @@
+"use client";
+
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowUpCircle,
+  BarChart3,
+  Bell,
+  Bot,
+  CheckCircle2,
+  Circle,
+  Clock,
+  ClipboardList,
+  Download,
+  FileDown,
+  FileText,
+  Loader2,
+  Mail,
+  MessageSquare,
+  RefreshCw,
+  TrendingUp,
+  User,
+  XCircle,
+} from "lucide-react";
+
+const API = "http://localhost:8000/api";
+const ITEMS_PER_PAGE = 20;
+
+// ──────────────────────────────────────────────
+// Types
+// ──────────────────────────────────────────────
+
+interface MonitorStatus {
+  monitoring_active: boolean;
+  last_poll_time: string | null;
+  next_poll_time: string | null;
+  poll_interval_minutes: number;
+  uptime_seconds: number;
+  stats: {
+    total_processed: number;
+    total_auto_processed: number;
+    total_escalated: number;
+    total_held: number;
+    total_patterns: number;
+    total_emails_sent: number;
+    total_slack_alerts: number;
+  };
+}
+
+interface ActivityEntry {
+  id: number;
+  timestamp: string;
+  action_type: string;
+  description: string;
+  complaint_id: string | null;
+  severity_level: string;
+  metadata_json: string | null;
+}
+
+interface Pattern {
+  id: number;
+  detected_at: string;
+  pattern_type: string;
+  description: string;
+  company: string;
+  product: string;
+  complaint_count: number;
+  time_window_hours: number;
+  resolved: boolean;
+}
+
+interface DayStats {
+  period_days: number;
+  total_processed: number;
+  auto_processed: number;
+  held_for_review: number;
+  escalated: number;
+  by_severity: Record<string, number>;
+  by_team: Record<string, number>;
+  avg_confidence: number;
+  avg_risk_gap: number;
+  avg_processing_time: number;
+  patterns_detected: number;
+  slack_alerts_sent: number;
+  emails_sent: number;
+}
+
+interface CaseSummary {
+  id: number;
+  case_number: string;
+  complaint_id: string;
+  status: string;
+  product: string;
+  issue: string;
+  severity: string;
+  priority: string;
+  assigned_team: string;
+  company: string;
+  state: string;
+  narrative_preview: string;
+  resolution_probability: number;
+  risk_gap: number;
+  overall_confidence: number;
+  auto_processed: boolean;
+  created_at: string;
+}
+
+interface CaseTask {
+  id: number;
+  case_id: number;
+  task_number: number;
+  description: string;
+  task_type: string;
+  status: string;
+  assigned_to: string;
+  regulation_reference: string | null;
+  due_date: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  notes: string | null;
+}
+
+interface CaseDetail extends CaseSummary {
+  tasks: CaseTask[];
+  task_summary: {
+    total: number;
+    completed: number;
+    pending: number;
+    scheduled: number;
+    overdue: number;
+    completion_percentage: number;
+  };
+}
+
+interface CaseStats {
+  total: number;
+  by_status: Record<string, number>;
+  auto_processed_pct: number;
+  avg_tasks_per_case: number;
+  avg_completion_pct: number;
+  overdue_tasks: number;
+  satisfaction?: {
+    avg_score: number;
+    total_responses: number;
+    response_rate: number;
+  };
+}
+
+interface SatisfactionStats {
+  total_sent: number;
+  total_responded: number;
+  avg_score: number;
+  response_rate: number;
+  score_distribution: Record<number, number>;
+}
+
+// ──────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────
+
+function relativeTime(ts: string): string {
+  if (!ts) return "—";
+  const d = new Date(ts.endsWith("Z") ? ts : ts + "Z");
+  const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (diff < 5) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function formatDate(ts: string): string {
+  if (!ts) return "—";
+  const d = new Date(ts.endsWith("Z") ? ts : ts + "Z");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function severityColor(level: string): string {
+  if (level === "critical") return "#dc2626";
+  if (level === "warning") return "#d97706";
+  return "#6b7280";
+}
+function severityBg(level: string): string {
+  if (level === "critical") return "#fff1f1";
+  if (level === "warning") return "#fffbeb";
+  return "#f9fafb";
+}
+function severityBorder(level: string): string {
+  if (level === "critical") return "#fca5a5";
+  if (level === "warning") return "#fde68a";
+  return "#e5e7eb";
+}
+function teamColor(team: string): string {
+  const map: Record<string, string> = {
+    compliance: "#7c3aed",
+    billing_disputes: "#2563eb",
+    fraud: "#dc2626",
+    customer_service: "#059669",
+    legal: "#92400e",
+    executive_escalation: "#b45309",
+  };
+  return map[team?.toLowerCase().replace(/ /g, "_")] || "#6b7280";
+}
+function priorityColor(p: string): string {
+  if (p === "P1") return "#dc2626";
+  if (p === "P2") return "#d97706";
+  if (p === "P3") return "#2563eb";
+  return "#6b7280";
+}
+function pct(n: number): string {
+  return `${Math.round(n * 100)}%`;
+}
+
+const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string; border: string }> = {
+  open:                  { label: "Open",             bg: "#f3f4f6", color: "#374151",  border: "#d1d5db" },
+  in_progress:           { label: "In Progress",      bg: "#eff6ff", color: "#2563eb",  border: "#bfdbfe" },
+  action_taken:          { label: "Action Taken",     bg: "#f5f3ff", color: "#7c3aed",  border: "#ddd6fe" },
+  awaiting_confirmation: { label: "Awaiting Confirm", bg: "#fffbeb", color: "#d97706",  border: "#fde68a" },
+  closed:                { label: "Closed",           bg: "#f0fdf4", color: "#059669",  border: "#bbf7d0" },
+  escalated:             { label: "Escalated",        bg: "#fff1f2", color: "#dc2626",  border: "#fecaca" },
+};
+
+// ──────────────────────────────────────────────
+// Sub-components
+// ──────────────────────────────────────────────
+
+function StatCard({ label, value, sub, accent }: {
+  label: string; value: number | string; sub?: string; accent?: string;
+}) {
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
+      padding: "16px 20px", flex: 1, minWidth: 140,
+      boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+    }}>
+      <p style={{ fontSize: 11, color: "#6b7280", fontWeight: 500, margin: 0 }}>{label}</p>
+      <p style={{ fontSize: 28, fontWeight: 700, color: accent || "#111827", margin: "4px 0 2px", lineHeight: 1 }}>
+        {value}
+      </p>
+      {sub && <p style={{ fontSize: 11, color: "#9ca3af", margin: 0 }}>{sub}</p>}
+    </div>
+  );
+}
+
+function ActivityIcon({ type, desc }: { type: string; desc: string }) {
+  const cls = "w-4 h-4";
+  if (type === "poll") return <RefreshCw className={cls} style={{ color: "#6b7280" }} />;
+  if (type === "system_start") return <div style={{ width: 12, height: 12, borderRadius: "50%", background: "#10b981" }} />;
+  if (type === "system_stop") return <XCircle className={cls} style={{ color: "#6b7280" }} />;
+  if (type === "error") return <XCircle className={cls} style={{ color: "#dc2626" }} />;
+  if (type === "pattern_detected") return <BarChart3 className={cls} style={{ color: "#7c3aed" }} />;
+  if (type === "email_sent") return <Mail className={cls} style={{ color: "#6b7280" }} />;
+  if (type === "slack_sent") return <MessageSquare className={cls} style={{ color: "#0ea5e9" }} />;
+  if (type === "escalate" || desc.includes("[ESCALATE]")) return <AlertTriangle className={cls} style={{ color: "#d97706" }} />;
+  if (desc.includes("[HOLD]")) return <Clock className={cls} style={{ color: "#6b7280" }} />;
+  if (desc.includes("[AUTO]") || desc.includes("[CASE]")) return <CheckCircle2 className={cls} style={{ color: "#059669" }} />;
+  if (desc.includes("[REVIEW]")) return <AlertCircle className={cls} style={{ color: "#d97706" }} />;
+  if (desc.includes("[MANUAL]")) return <User className={cls} style={{ color: "#6b7280" }} />;
+  if (desc.includes("[SIMULATE]")) return <Bot className={cls} style={{ color: "#6366f1" }} />;
+  if (desc.includes("[PATTERN]")) return <TrendingUp className={cls} style={{ color: "#7c3aed" }} />;
+  if (desc.includes("[SLA]")) return <AlertCircle className={cls} style={{ color: "#dc2626" }} />;
+  if (type === "process" || type === "route") return <ClipboardList className={cls} style={{ color: "#6b7280" }} />;
+  return <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#9ca3af", marginTop: 5 }} />;
+}
+
+function ActivityItem({ entry }: { entry: ActivityEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const color = severityColor(entry.severity_level);
+  const bg = severityBg(entry.severity_level);
+  const border = severityBorder(entry.severity_level);
+  return (
+    <div
+      style={{
+        display: "flex", gap: 10, padding: "10px 12px", borderRadius: 8,
+        background: bg, border: `1px solid ${border}`, borderLeft: `3px solid ${color}`,
+        cursor: entry.complaint_id ? "pointer" : "default",
+      }}
+      onClick={() => entry.complaint_id && setExpanded(!expanded)}
+    >
+      <span style={{ flexShrink: 0, marginTop: 1, display: "flex", alignItems: "flex-start" }}>
+        <ActivityIcon type={entry.action_type} desc={entry.description} />
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+          <p style={{ fontSize: 13, color: "#111827", margin: 0, lineHeight: 1.4, wordBreak: "break-word" }}>
+            {entry.description}
+          </p>
+          <span style={{ fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap", flexShrink: 0 }}>
+            {relativeTime(entry.timestamp)}
+          </span>
+        </div>
+        {entry.complaint_id && (
+          <p style={{ fontSize: 11, color: "#6b7280", margin: "2px 0 0" }}>
+            ID: {entry.complaint_id.slice(0, 8)}… · click to expand
+          </p>
+        )}
+        {expanded && entry.metadata_json && (
+          <pre style={{
+            marginTop: 8, padding: 8, background: "#f3f4f6", borderRadius: 4,
+            fontSize: 11, color: "#374151", overflow: "auto", maxHeight: 120,
+          }}>
+            {JSON.stringify(JSON.parse(entry.metadata_json || "{}"), null, 2)}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PatternCard({ pattern, onResolve }: { pattern: Pattern; onResolve: (id: number) => void }) {
+  const icons: Record<string, React.ReactElement> = {
+    complaint_cluster: <BarChart3 style={{ width: 14, height: 14, color: "#d97706" }} />,
+    volume_spike: <TrendingUp style={{ width: 14, height: 14, color: "#d97706" }} />,
+    company_trend: <BarChart3 style={{ width: 14, height: 14, color: "#d97706" }} />,
+  };
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #fde68a", borderLeft: "3px solid #d97706",
+      borderRadius: 8, padding: "12px 14px",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+            {icons[pattern.pattern_type] || <BarChart3 style={{ width: 14, height: 14, color: "#d97706" }} />}
+            <span style={{
+              fontSize: 10, padding: "2px 8px", borderRadius: 10,
+              background: "#fef3c7", color: "#92400e", fontWeight: 600,
+            }}>
+              {pattern.pattern_type.replace(/_/g, " ").toUpperCase()}
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: "#111827", margin: "0 0 4px", fontWeight: 500 }}>
+            {pattern.description}
+          </p>
+          <p style={{ fontSize: 11, color: "#9ca3af", margin: 0 }}>
+            Detected {relativeTime(pattern.detected_at)} · {pattern.complaint_count} complaints
+          </p>
+        </div>
+        <button
+          onClick={() => onResolve(pattern.id)}
+          style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 6,
+            border: "1px solid #d97706", background: "#fff", color: "#d97706",
+            cursor: "pointer", fontWeight: 600, flexShrink: 0, marginLeft: 8,
+          }}
+        >
+          Resolve
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MiniBarChart({ data, colorFn }: { data: Record<string, number>; colorFn: (key: string) => string }) {
+  const entries = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const max = Math.max(...entries.map(([, v]) => v), 1);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {entries.map(([key, val]) => (
+        <div key={key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "#374151", width: 120, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {key || "—"}
+          </span>
+          <div style={{ flex: 1, background: "#f3f4f6", borderRadius: 3, height: 10 }}>
+            <div style={{ height: "100%", borderRadius: 3, background: colorFn(key), width: `${(val / max) * 100}%`, transition: "width 0.5s ease" }} />
+          </div>
+          <span style={{ fontSize: 11, color: "#6b7280", width: 24, textAlign: "right" }}>{val}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg = STATUS_CONFIG[status] || { label: status, bg: "#f3f4f6", color: "#374151", border: "#d1d5db" };
+  return (
+    <span style={{
+      fontSize: 10, padding: "2px 8px", borderRadius: 10,
+      background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
+      fontWeight: 600, whiteSpace: "nowrap",
+    }}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function TaskProgressBar({ completed, total, overdue }: { completed: number; total: number; overdue: number }) {
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const barColor = overdue > 1 ? "#dc2626" : overdue > 0 ? "#d97706" : "#10b981";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: "#374151", fontWeight: 500 }}>{completed}/{total}</span>
+        {overdue > 0 && (
+          <span style={{ fontSize: 10, color: "#dc2626", fontWeight: 600 }}>{overdue} overdue</span>
+        )}
+      </div>
+      <div style={{ height: 4, background: "#f3f4f6", borderRadius: 2, width: 80 }}>
+        <div style={{ height: "100%", borderRadius: 2, background: barColor, width: `${pct}%`, transition: "width 0.4s ease" }} />
+      </div>
+    </div>
+  );
+}
+
+function TaskIcon({ task }: { task: CaseTask }) {
+  if (task.status === "completed") {
+    const color = task.completed_by === "system" ? "#059669" : "#2563eb";
+    return <CheckCircle2 style={{ width: 18, height: 18, color, flexShrink: 0 }} />;
+  }
+  if (task.status === "overdue") return <AlertCircle style={{ width: 18, height: 18, color: "#dc2626", flexShrink: 0 }} />;
+  if (task.status === "escalated") return <ArrowUpCircle style={{ width: 18, height: 18, color: "#dc2626", flexShrink: 0 }} />;
+  if (task.task_type === "scheduled") return <Clock style={{ width: 18, height: 18, color: "#9ca3af", flexShrink: 0 }} />;
+  return <Circle style={{ width: 18, height: 18, color: "#f59e0b", flexShrink: 0 }} />;
+}
+
+function TaskTimeline({
+  caseNumber, tasks, onTaskComplete, onRefresh,
+}: {
+  caseNumber: string;
+  tasks: CaseTask[];
+  onTaskComplete: (taskId: number) => void;
+  onRefresh: () => void;
+}) {
+  const [completing, setCompleting] = useState<number | null>(null);
+
+  async function markComplete(taskId: number) {
+    setCompleting(taskId);
+    try {
+      const r = await fetch(`${API}/cases/${caseNumber}/tasks/${taskId}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: "", completed_by: "human" }),
+      });
+      if (r.ok) {
+        onTaskComplete(taskId);
+        onRefresh();
+      }
+    } finally {
+      setCompleting(null);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {tasks.map((task, idx) => {
+        const isLast = idx === tasks.length - 1;
+        const isOverdue = task.status === "overdue";
+        return (
+          <div key={task.id} style={{ display: "flex", gap: 12 }}>
+            {/* Vertical line + icon */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20, flexShrink: 0 }}>
+              <TaskIcon task={task} />
+              {!isLast && <div style={{ width: 2, flex: 1, background: "#e5e7eb", margin: "4px 0" }} />}
+            </div>
+            {/* Content */}
+            <div style={{
+              flex: 1, paddingBottom: isLast ? 0 : 16,
+              borderLeft: isOverdue ? "2px solid #fca5a5" : "none",
+              paddingLeft: isOverdue ? 8 : 0,
+              marginLeft: isOverdue ? -2 : 0,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{
+                    fontSize: 13, fontWeight: 500,
+                    color: task.status === "completed" ? "#6b7280" : "#111827",
+                    margin: 0, lineHeight: 1.4,
+                  }}>
+                    Task {task.task_number}: {task.description}
+                  </p>
+                  {task.regulation_reference && (
+                    <span style={{
+                      display: "inline-block", marginTop: 4, fontSize: 10,
+                      padding: "1px 7px", borderRadius: 4,
+                      border: "1px solid #e5e7eb", color: "#6b7280",
+                      background: "#f9fafb",
+                    }}>
+                      Reg: {task.regulation_reference}
+                    </span>
+                  )}
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  {task.status === "completed" ? (
+                    <div>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: "#059669", margin: 0 }}>COMPLETED</p>
+                      <p style={{ fontSize: 10, color: "#9ca3af", margin: "1px 0 0" }}>
+                        by {task.completed_by || "system"}
+                        {task.completed_at ? `, ${new Date(task.completed_at.endsWith("Z") ? task.completed_at : task.completed_at + "Z").toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}
+                      </p>
+                    </div>
+                  ) : task.task_type === "scheduled" ? (
+                    <div>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", margin: 0 }}>SCHEDULED</p>
+                      {task.due_date && (
+                        <p style={{ fontSize: 10, color: "#9ca3af", margin: "1px 0 0" }}>
+                          {formatDate(task.due_date)}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: isOverdue ? "#dc2626" : "#d97706", margin: 0 }}>
+                        {isOverdue ? "OVERDUE" : "PENDING"}
+                      </p>
+                      {task.due_date && (
+                        <p style={{ fontSize: 10, color: isOverdue ? "#dc2626" : "#9ca3af", margin: "1px 0 0" }}>
+                          Due: {formatDate(task.due_date)}
+                        </p>
+                      )}
+                      {task.task_type === "human" && (
+                        <p style={{ fontSize: 10, color: "#6b7280", margin: "1px 0 4px" }}>
+                          assigned to {task.assigned_to}
+                        </p>
+                      )}
+                      {task.task_type === "human" && (
+                        <button
+                          onClick={() => markComplete(task.id)}
+                          disabled={completing === task.id}
+                          style={{
+                            fontSize: 10, padding: "2px 8px", borderRadius: 5,
+                            border: "1px solid #10b981", background: "#f0fdf4",
+                            color: "#059669", cursor: completing === task.id ? "not-allowed" : "pointer",
+                            fontWeight: 600, opacity: completing === task.id ? 0.6 : 1,
+                          }}
+                        >
+                          {completing === task.id ? "…" : "Mark Complete"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CaseSummaryCard({
+  caseDetail, caseNumber, onResolve, onDispute,
+}: {
+  caseDetail: CaseDetail;
+  caseNumber: string;
+  onResolve: () => void;
+  onDispute: () => void;
+}) {
+  const ts = caseDetail.task_summary;
+  const autoTasks = caseDetail.tasks.filter((t) => t.task_type === "auto" && t.status === "completed");
+  const humanPending = caseDetail.tasks.filter((t) => t.task_type === "human" && t.status === "pending").length;
+  const scheduledPending = caseDetail.tasks.filter((t) => t.task_type === "scheduled" && t.status === "pending").length;
+
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
+      padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+    }}>
+      <div style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
+          Case #{caseDetail.case_number}
+        </p>
+        <StatusBadge status={caseDetail.status} />
+      </div>
+
+      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", marginBottom: 14 }}>
+        <tbody>
+          {[
+            ["Product", caseDetail.product],
+            ["Issue", caseDetail.issue],
+            ["Severity", caseDetail.severity?.toUpperCase()],
+            ["Priority", caseDetail.priority],
+            ["Team", caseDetail.assigned_team],
+          ].map(([k, v]) => (
+            <tr key={k} style={{ borderBottom: "1px solid #f3f4f6" }}>
+              <td style={{ padding: "5px 0", color: "#6b7280", width: "40%" }}>{k}</td>
+              <td style={{ padding: "5px 0", color: "#111827", fontWeight: 500 }}>{v || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div style={{ marginBottom: 14, padding: "10px 12px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>Resolution Probability</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>
+            {Math.round((caseDetail.resolution_probability || 0) * 100)}%
+          </span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>Risk Gap</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: (caseDetail.risk_gap || 0) > 0.2 ? "#dc2626" : "#374151" }}>
+            {Math.round((caseDetail.risk_gap || 0) * 100)}%
+          </span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>Confidence</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>
+            {Math.round((caseDetail.overall_confidence || 0) * 100)}%
+          </span>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>Tasks</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>
+            {ts.completed}/{ts.total} ({ts.completion_percentage}%)
+          </span>
+        </div>
+        <div style={{ height: 6, background: "#f3f4f6", borderRadius: 3 }}>
+          <div style={{
+            height: "100%", borderRadius: 3,
+            background: ts.overdue > 0 ? "#dc2626" : "#10b981",
+            width: `${ts.completion_percentage}%`, transition: "width 0.4s",
+          }} />
+        </div>
+      </div>
+
+      {autoTasks.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <p style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, margin: "0 0 6px" }}>
+            Actions Taken by System:
+          </p>
+          {autoTasks.map((t) => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+              <CheckCircle2 style={{ width: 12, height: 12, color: "#059669", flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: "#374151" }}>{t.description}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(humanPending > 0 || scheduledPending > 0) && (
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, margin: "0 0 6px" }}>Awaiting:</p>
+          {humanPending > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+              <Circle style={{ width: 12, height: 12, color: "#f59e0b" }} />
+              <span style={{ fontSize: 11, color: "#374151" }}>
+                {humanPending} task{humanPending > 1 ? "s" : ""} assigned to {caseDetail.assigned_team}
+              </span>
+            </div>
+          )}
+          {scheduledPending > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Clock style={{ width: 12, height: 12, color: "#9ca3af" }} />
+              <span style={{ fontSize: 11, color: "#374151" }}>
+                {scheduledPending} task{scheduledPending > 1 ? "s" : ""} scheduled for future dates
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={onResolve}
+          style={{
+            flex: 1, padding: "7px 12px", borderRadius: 8,
+            border: "1px solid #059669", background: "#f0fdf4",
+            color: "#059669", fontSize: 12, fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          Resolve Case
+        </button>
+        <button
+          onClick={onDispute}
+          style={{
+            flex: 1, padding: "7px 12px", borderRadius: 8,
+            border: "1px solid #e5e7eb", background: "#fff",
+            color: "#374151", fontSize: 12, fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          Dispute Resolution
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CaseLifecyclePipeline({ stats }: { stats: CaseStats | null }) {
+  if (!stats) return null;
+  const by = stats.by_status || {};
+  const stages = [
+    { key: "open",                  label: "Open",            cfg: STATUS_CONFIG.open },
+    { key: "in_progress",           label: "In Progress",     cfg: STATUS_CONFIG.in_progress },
+    { key: "action_taken",          label: "Action Taken",    cfg: STATUS_CONFIG.action_taken },
+    { key: "awaiting_confirmation", label: "Awaiting Confirm", cfg: STATUS_CONFIG.awaiting_confirmation },
+    { key: "closed",                label: "Closed",          cfg: STATUS_CONFIG.closed },
+  ];
+  const escalated = by.escalated || 0;
+
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
+      padding: 20, marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>Case Lifecycle</h2>
+        <span style={{ fontSize: 11, color: "#9ca3af" }}>auto-refresh every 30s</span>
+      </div>
+
+      {/* Pipeline boxes */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+        {stages.map((stage, i) => (
+          <div key={stage.key} style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <div style={{
+              padding: "10px 16px", borderRadius: 10,
+              background: stage.cfg.bg, border: `1px solid ${stage.cfg.border}`,
+              textAlign: "center", minWidth: 110,
+            }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: stage.cfg.color, margin: "0 0 4px" }}>
+                {stage.label.toUpperCase()}
+              </p>
+              <p style={{ fontSize: 22, fontWeight: 700, color: stage.cfg.color, margin: 0, lineHeight: 1 }}>
+                {by[stage.key] || 0}
+              </p>
+            </div>
+            {i < stages.length - 1 && (
+              <span style={{ fontSize: 18, color: "#d1d5db", flexShrink: 0 }}>→</span>
+            )}
+          </div>
+        ))}
+        {escalated > 0 && (
+          <>
+            <span style={{ fontSize: 18, color: "#d1d5db", flexShrink: 0 }}>|</span>
+            <div style={{
+              padding: "10px 16px", borderRadius: 10, minWidth: 100,
+              background: STATUS_CONFIG.escalated.bg, border: `1px solid ${STATUS_CONFIG.escalated.border}`,
+              textAlign: "center",
+            }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: STATUS_CONFIG.escalated.color, margin: "0 0 4px" }}>
+                ESCALATED
+              </p>
+              <p style={{ fontSize: 22, fontWeight: 700, color: STATUS_CONFIG.escalated.color, margin: 0, lineHeight: 1 }}>
+                {escalated}
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Summary metrics */}
+      <div style={{ display: "flex", gap: 20, marginTop: 14, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: "#374151" }}>
+          <strong>Total cases:</strong> {stats.total}
+        </span>
+        <span style={{ fontSize: 12, color: "#059669" }}>
+          <strong>Autonomous resolution rate:</strong> {stats.auto_processed_pct}%
+        </span>
+        <span style={{ fontSize: 12, color: "#374151" }}>
+          <strong>Average task completion:</strong> {stats.avg_completion_pct}%
+        </span>
+        {stats.overdue_tasks > 0 && (
+          <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>
+            <strong>Overdue tasks:</strong> {stats.overdue_tasks}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ResolutionActivity({ caseStats, dayStats }: { caseStats: CaseStats | null; dayStats: DayStats | null }) {
+  const totalCases = caseStats?.total || 0;
+  const ackSent = totalCases;
+  const teamAlerts = totalCases;
+  const escalations = dayStats?.slack_alerts_sent || 0;
+  const emails = dayStats?.emails_sent || 0;
+  const surveys = caseStats?.satisfaction?.total_responses || 0;
+  const overdueTasks = caseStats?.overdue_tasks || 0;
+
+  const rows = [
+    { icon: <CheckCircle2 style={{ width: 14, height: 14, color: "#059669" }} />, count: ackSent, label: "Acknowledgments sent" },
+    { icon: <Bell style={{ width: 14, height: 14, color: "#2563eb" }} />, count: teamAlerts, label: "Team alerts dispatched" },
+    { icon: <AlertTriangle style={{ width: 14, height: 14, color: "#d97706" }} />, count: escalations, label: "Escalation alerts sent" },
+    { icon: <Mail style={{ width: 14, height: 14, color: "#6b7280" }} />, count: emails, label: "Follow-up emails sent" },
+    { icon: <MessageSquare style={{ width: 14, height: 14, color: "#0ea5e9" }} />, count: surveys, label: "Satisfaction surveys sent" },
+    { icon: <FileText style={{ width: 14, height: 14, color: "#6b7280" }} />, count: 1, label: "Daily reports generated" },
+    { icon: <Clock style={{ width: 14, height: 14, color: "#7c3aed" }} />, count: dayStats?.total_processed || 0, label: "Tasks assigned to teams" },
+    { icon: <AlertCircle style={{ width: 14, height: 14, color: "#dc2626" }} />, count: overdueTasks, label: "Overdue tasks escalated" },
+  ];
+
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
+      padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+    }}>
+      <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
+        Resolution Activity
+      </h2>
+      <p style={{ fontSize: 11, color: "#9ca3af", margin: "0 0 14px" }}>Since system launch</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {rows.map((row, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {row.icon}
+            <span style={{
+              fontSize: 15, fontWeight: 700, color: "#111827",
+              width: 28, textAlign: "right", flexShrink: 0,
+            }}>
+              {row.count}
+            </span>
+            <span style={{ fontSize: 12, color: "#374151" }}>{row.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SatisfactionPanel({ stats }: { stats: SatisfactionStats | null }) {
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
+      padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+    }}>
+      <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: "0 0 14px" }}>
+        Customer Satisfaction
+      </h2>
+      {!stats || stats.total_sent === 0 ? (
+        <p style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>
+          No satisfaction responses yet. Surveys are automatically sent when cases reach the confirmation stage.
+        </p>
+      ) : (
+        <div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
+            <span style={{ fontSize: 28, fontWeight: 700, color: "#111827" }}>
+              {stats.avg_score.toFixed(1)}
+            </span>
+            <span style={{ fontSize: 14, color: "#6b7280" }}>/ 5</span>
+          </div>
+          <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 12px" }}>
+            {stats.total_responded} responses · {stats.response_rate}% response rate
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {[5, 4, 3, 2, 1].map((star) => {
+              const count = stats.score_distribution[star] || 0;
+              const maxCount = Math.max(...Object.values(stats.score_distribution || {}), 1);
+              return (
+                <div key={star} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, color: "#374151", width: 14, textAlign: "right" }}>{star}</span>
+                  <span style={{ fontSize: 11, color: "#9ca3af" }}>★</span>
+                  <div style={{ flex: 1, background: "#f3f4f6", borderRadius: 3, height: 8 }}>
+                    <div style={{
+                      height: "100%", borderRadius: 3, background: "#f59e0b",
+                      width: `${(count / maxCount) * 100}%`,
+                    }} />
+                  </div>
+                  <span style={{ fontSize: 11, color: "#6b7280", width: 16, textAlign: "right" }}>{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CaseRow({ c, isExpanded, onClick }: { c: CaseSummary; isExpanded: boolean; onClick: () => void }) {
+  const byStatus = STATUS_CONFIG[c.status] || STATUS_CONFIG.open;
+  const leftBorder = c.status === "escalated"
+    ? "3px solid #dc2626"
+    : isExpanded
+    ? "3px solid #2563eb"
+    : "3px solid transparent";
+
+  return (
+    <tr
+      onClick={onClick}
+      style={{ borderBottom: "1px solid #f3f4f6", cursor: "pointer", borderLeft: leftBorder }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = isExpanded ? "#f0f7ff" : "transparent")}
+    >
+      <td style={{ padding: "10px 12px", fontSize: 11, color: "#6b7280", whiteSpace: "nowrap" }}>
+        {relativeTime(c.created_at)}
+      </td>
+      <td style={{ padding: "10px 8px" }}>
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          {c.auto_processed
+            ? <Bot style={{ width: 14, height: 14, color: "#6366f1" }} />
+            : <User style={{ width: 14, height: 14, color: "#6b7280" }} />}
+        </div>
+      </td>
+      <td style={{ padding: "10px 8px", fontSize: 12, fontWeight: 600, color: "#2563eb", whiteSpace: "nowrap" }}>
+        {c.case_number}
+      </td>
+      <td style={{ padding: "10px 8px", fontSize: 12, color: "#374151", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {c.narrative_preview}
+      </td>
+      <td style={{ padding: "10px 8px", fontSize: 12, color: "#374151" }}>{c.product || "—"}</td>
+      <td style={{ padding: "10px 8px" }}>
+        <span style={{
+          fontSize: 11, padding: "2px 7px", borderRadius: 10, fontWeight: 600,
+          background: c.severity === "critical" ? "#fee2e2" : c.severity === "high" ? "#fef3c7" : c.severity === "medium" ? "#dbeafe" : "#f3f4f6",
+          color: c.severity === "critical" ? "#dc2626" : c.severity === "high" ? "#d97706" : c.severity === "medium" ? "#2563eb" : "#6b7280",
+        }}>
+          {c.severity || "—"}
+        </span>
+      </td>
+      <td style={{ padding: "10px 8px" }}>
+        <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 10, background: teamColor(c.assigned_team) + "18", color: teamColor(c.assigned_team), fontWeight: 600 }}>
+          {c.assigned_team || "—"}
+        </span>
+      </td>
+      <td style={{ padding: "10px 8px" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: priorityColor(c.priority) }}>
+          {c.priority || "—"}
+        </span>
+      </td>
+      <td style={{ padding: "10px 12px" }}>
+        <StatusBadge status={c.status} />
+      </td>
+    </tr>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Main Monitor Page
+// ──────────────────────────────────────────────
+
+export default function MonitorPage() {
+  const [status, setStatus] = useState<MonitorStatus | null>(null);
+  const [activities, setActivities] = useState<ActivityEntry[]>([]);
+  const [patterns, setPatterns] = useState<Pattern[]>([]);
+  const [cases, setCases] = useState<CaseSummary[]>([]);
+  const [caseStats, setCaseStats] = useState<CaseStats | null>(null);
+  const [satisfaction, setSatisfaction] = useState<SatisfactionStats | null>(null);
+  const [dayStats, setDayStats] = useState<DayStats | null>(null);
+  const [expandedCase, setExpandedCase] = useState<string | null>(null);
+  const [caseDetail, setCaseDetail] = useState<CaseDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [polling, setPolling] = useState(false);
+  const [simulating, setSimulating] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activityPage, setActivityPage] = useState(0);
+  const [casePage, setCasePage] = useState(0);
+
+  // ── fetch helpers ──────────────────────────────
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/monitor/status`);
+      if (r.ok) setStatus(await r.json());
+    } catch {}
+  }, []);
+
+  const fetchActivity = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/monitor/activity?hours=72&limit=200`);
+      if (r.ok) setActivities((await r.json()).activities || []);
+    } catch {}
+  }, []);
+
+  const fetchPatterns = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/monitor/patterns`);
+      if (r.ok) setPatterns((await r.json()).patterns || []);
+    } catch {}
+  }, []);
+
+  const fetchCases = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/cases?limit=100`);
+      if (r.ok) setCases((await r.json()).cases || []);
+    } catch {}
+  }, []);
+
+  const fetchCaseStats = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/cases/stats`);
+      if (r.ok) setCaseStats(await r.json());
+    } catch {}
+  }, []);
+
+  const fetchSatisfaction = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/cases/satisfaction`);
+      if (r.ok) setSatisfaction(await r.json());
+    } catch {}
+  }, []);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/monitor/stats?days=1`);
+      if (r.ok) setDayStats(await r.json());
+    } catch {}
+  }, []);
+
+  const fetchCaseDetail = useCallback(async (caseNumber: string) => {
+    setLoadingDetail(true);
+    try {
+      const r = await fetch(`${API}/cases/${caseNumber}`);
+      if (r.ok) setCaseDetail(await r.json());
+    } finally {
+      setLoadingDetail(false);
+    }
+  }, []);
+
+  // ── initial load + polling ─────────────────────
+
+  useEffect(() => {
+    fetchStatus(); fetchActivity(); fetchPatterns();
+    fetchCases(); fetchCaseStats(); fetchSatisfaction(); fetchStats();
+
+    const fast = setInterval(() => { fetchStatus(); fetchActivity(); }, 10_000);
+    const slow = setInterval(() => {
+      fetchPatterns(); fetchCases(); fetchCaseStats(); fetchSatisfaction(); fetchStats();
+    }, 30_000);
+
+    return () => { clearInterval(fast); clearInterval(slow); };
+  }, [fetchStatus, fetchActivity, fetchPatterns, fetchCases, fetchCaseStats, fetchSatisfaction, fetchStats]);
+
+  // Load case detail when expanding
+  useEffect(() => {
+    if (expandedCase) fetchCaseDetail(expandedCase);
+    else setCaseDetail(null);
+  }, [expandedCase, fetchCaseDetail]);
+
+  // ── actions ─────────────────────────────────────
+
+  async function handleStartStop() {
+    if (!status) return;
+    setStarting(true);
+    try {
+      if (status.monitoring_active) {
+        await fetch(`${API}/monitor/stop`, { method: "POST" });
+      } else {
+        await fetch(`${API}/monitor/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ interval_minutes: 30 }),
+        });
+      }
+      await fetchStatus();
+    } catch { setError("Failed to toggle monitoring"); }
+    finally { setStarting(false); }
+  }
+
+  async function handlePollNow() {
+    setPolling(true);
+    try {
+      await fetch(`${API}/monitor/poll-now`, { method: "POST" });
+      setTimeout(() => { fetchActivity(); fetchCases(); fetchCaseStats(); fetchStats(); fetchStatus(); }, 3000);
+    } catch { setError("Poll failed"); }
+    finally { setTimeout(() => setPolling(false), 3000); }
+  }
+
+  async function handleSimulate() {
+    setSimulating(true);
+    setError(null);
+    try {
+      const r = await fetch(`${API}/monitor/simulate?count=5`, { method: "POST" });
+      if (!r.ok) {
+        const d = await r.json();
+        setError(d.detail || "Simulation failed");
+      } else {
+        setTimeout(() => {
+          fetchActivity(); fetchCases(); fetchCaseStats(); fetchSatisfaction(); fetchStats(); fetchStatus();
+        }, 1500);
+      }
+    } catch { setError("Simulation request failed"); }
+    finally { setSimulating(false); }
+  }
+
+  async function handleResolvePattern(id: number) {
+    await fetch(`${API}/monitor/patterns/${id}/resolve`, { method: "POST" });
+    setPatterns((p) => p.filter((x) => x.id !== id));
+  }
+
+  async function handleResolveCase() {
+    if (!expandedCase) return;
+    await fetch(`${API}/cases/${expandedCase}/resolve`, { method: "POST" });
+    fetchCases(); fetchCaseStats(); fetchCaseDetail(expandedCase);
+  }
+
+  async function handleDisputeCase() {
+    if (!expandedCase) return;
+    await fetch(`${API}/cases/${expandedCase}/dispute`, { method: "POST" });
+    fetchCases(); fetchCaseStats(); fetchCaseDetail(expandedCase);
+  }
+
+  function handleDownloadReport() {
+    const today = new Date().toISOString().slice(0, 10);
+    const a = document.createElement("a");
+    a.href = `${API}/reports/daily?date=${today}`;
+    a.download = `cfpb_report_${today}.csv`;
+    a.click();
+  }
+
+  // ── derived ─────────────────────────────────────
+
+  const isEmpty = !status?.stats?.total_processed && activities.length === 0 && cases.length === 0;
+  const pagedActivity = activities.slice(activityPage * ITEMS_PER_PAGE, (activityPage + 1) * ITEMS_PER_PAGE);
+  const pagedCases = cases.slice(casePage * ITEMS_PER_PAGE, (casePage + 1) * ITEMS_PER_PAGE);
+  const stats = status?.stats;
+  const autoRate = stats?.total_processed
+    ? Math.round((stats.total_auto_processed / stats.total_processed) * 100)
+    : 0;
+
+  // ── render ───────────────────────────────────────
+
+  return (
+    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "24px 24px 64px" }}>
+
+      {/* ── Header bar ────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>
+            Autonomous Monitoring
+          </h1>
+          <p style={{ fontSize: 13, color: "#6b7280", margin: "2px 0 0" }}>
+            Real-time CFPB complaint processing and case management
+          </p>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {/* Status indicator */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "6px 14px",
+            borderRadius: 20, border: "1px solid #e5e7eb", background: "#fff", fontSize: 13,
+          }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: "50%",
+              background: status?.monitoring_active ? "#10b981" : "#ef4444",
+              display: "inline-block",
+              animation: status?.monitoring_active ? "pulse 2s infinite" : "none",
+            }} />
+            <span style={{ fontWeight: 600, color: status?.monitoring_active ? "#059669" : "#dc2626" }}>
+              {status?.monitoring_active ? "Active" : "Paused"}
+            </span>
+          </div>
+
+          {status?.last_poll_time && (
+            <span style={{ fontSize: 12, color: "#9ca3af" }}>
+              Last: {relativeTime(status.last_poll_time)}
+            </span>
+          )}
+
+          <button
+            onClick={handleStartStop} disabled={starting}
+            style={{
+              padding: "7px 16px", borderRadius: 8,
+              border: `1px solid ${status?.monitoring_active ? "#dc2626" : "#059669"}`,
+              background: status?.monitoring_active ? "#fff1f1" : "#f0fdf4",
+              color: status?.monitoring_active ? "#dc2626" : "#059669",
+              fontSize: 13, fontWeight: 600,
+              cursor: starting ? "not-allowed" : "pointer", opacity: starting ? 0.7 : 1,
+            }}
+          >
+            {starting ? "…" : status?.monitoring_active ? "Stop Monitoring" : "Start Monitoring"}
+          </button>
+
+          <button
+            onClick={handlePollNow} disabled={polling}
+            style={{
+              padding: "7px 16px", borderRadius: 8, border: "1px solid #e5e7eb",
+              background: "#fff", color: "#374151", fontSize: 13, fontWeight: 600,
+              cursor: polling ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", gap: 6, opacity: polling ? 0.7 : 1,
+            }}
+          >
+            {polling
+              ? <><Loader2 style={{ width: 13, height: 13 }} className="animate-spin" /> Polling…</>
+              : "Poll Now"}
+          </button>
+
+          <button
+            onClick={handleSimulate} disabled={simulating}
+            style={{
+              padding: "7px 16px", borderRadius: 8, border: "1px dashed #6366f1",
+              background: simulating ? "#f5f3ff" : "#fafafa", color: "#6366f1",
+              fontSize: 13, fontWeight: 600,
+              cursor: simulating ? "not-allowed" : "pointer", opacity: simulating ? 0.7 : 1,
+              display: "flex", alignItems: "center", gap: 6,
+            }}
+          >
+            {simulating
+              ? <><Loader2 style={{ width: 13, height: 13 }} className="animate-spin" /> Simulating…</>
+              : <><Bot style={{ width: 13, height: 13 }} /> Simulate</>}
+          </button>
+
+          <button
+            onClick={handleDownloadReport}
+            style={{
+              padding: "7px 16px", borderRadius: 8,
+              border: "1px solid #e5e7eb", background: "#fff", color: "#374151",
+              fontSize: 13, fontWeight: 600, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+            }}
+          >
+            <FileDown style={{ width: 13, height: 13, color: "#6b7280" }} />
+            Download Report
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{
+          padding: "10px 16px", background: "#fff1f1", border: "1px solid #fca5a5",
+          borderRadius: 8, color: "#dc2626", fontSize: 13, marginBottom: 16,
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <AlertTriangle style={{ width: 14, height: 14, flexShrink: 0 }} />
+          {error}
+          <button onClick={() => setError(null)} style={{ marginLeft: "auto", cursor: "pointer", color: "#dc2626", fontWeight: 700, background: "none", border: "none" }}>
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* ── Empty state ───────────────────────────── */}
+      {isEmpty && (
+        <div style={{
+          background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
+          padding: "48px 32px", textAlign: "center", marginBottom: 24,
+        }}>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+            <Bot style={{ width: 48, height: 48, color: "#d1d5db" }} />
+          </div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "#111827", margin: "0 0 8px" }}>
+            No complaints processed yet
+          </h2>
+          <p style={{ fontSize: 14, color: "#6b7280", maxWidth: 400, margin: "0 auto 20px" }}>
+            Start monitoring to begin autonomous processing, or click <strong>Simulate</strong> to process sample complaints.
+          </p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+            <button onClick={handleStartStop} style={{
+              padding: "8px 20px", borderRadius: 8, border: "1px solid #059669",
+              background: "#f0fdf4", color: "#059669", fontSize: 14, fontWeight: 600, cursor: "pointer",
+            }}>
+              Start Monitoring
+            </button>
+            <button onClick={handleSimulate} disabled={simulating} style={{
+              padding: "8px 20px", borderRadius: 8, border: "1px dashed #6366f1",
+              background: "#fafafa", color: "#6366f1", fontSize: 14, fontWeight: 600, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              {simulating
+                ? <><Loader2 style={{ width: 14, height: 14 }} className="animate-spin" /> Simulating…</>
+                : <><Bot style={{ width: 14, height: 14 }} /> Simulate 5 Complaints</>}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Stats cards ───────────────────────────── */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
+        <StatCard label="Total Processed" value={stats?.total_processed ?? 0} sub={`+${dayStats?.total_processed ?? 0} today`} />
+        <StatCard label="Auto-Processed" value={`${autoRate}%`} sub={`${stats?.total_auto_processed ?? 0} of ${stats?.total_processed ?? 0}`} accent="#059669" />
+        <StatCard label="Escalated" value={stats?.total_escalated ?? 0} sub="high-risk complaints" accent={(stats?.total_escalated ?? 0) > 0 ? "#dc2626" : undefined} />
+        <StatCard label="Patterns Detected" value={patterns.length} sub="active patterns" accent={patterns.length > 0 ? "#d97706" : undefined} />
+        <StatCard label="Open Cases" value={caseStats?.by_status?.open ?? 0} sub={`${caseStats?.total ?? 0} total cases`} />
+        <StatCard label="Overdue Tasks" value={caseStats?.overdue_tasks ?? 0} sub="requiring attention" accent={(caseStats?.overdue_tasks ?? 0) > 0 ? "#dc2626" : undefined} />
+      </div>
+
+      {/* ── Case Lifecycle Pipeline ───────────────── */}
+      <CaseLifecyclePipeline stats={caseStats} />
+
+      {/* ── Two-column layout ─────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(0, 2fr)", gap: 16, marginBottom: 24 }}>
+
+        {/* ── Activity Feed ───────────────────────── */}
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+          <div style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>System Activity</h2>
+            <span style={{ fontSize: 11, color: "#9ca3af" }}>auto-refresh every 10s</span>
+          </div>
+          <div style={{ maxHeight: 480, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+            {pagedActivity.length === 0 ? (
+              <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 13, padding: "32px 0" }}>
+                No activity yet. Start monitoring or simulate complaints.
+              </p>
+            ) : pagedActivity.map((entry) => <ActivityItem key={entry.id} entry={entry} />)}
+          </div>
+          {activities.length > ITEMS_PER_PAGE && (
+            <div style={{ padding: "10px 16px", borderTop: "1px solid #f3f4f6", display: "flex", gap: 8, justifyContent: "center" }}>
+              <button disabled={activityPage === 0} onClick={() => setActivityPage((p) => p - 1)}
+                style={{ padding: "4px 12px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 6, cursor: activityPage === 0 ? "not-allowed" : "pointer", background: "#fff", color: "#374151", opacity: activityPage === 0 ? 0.4 : 1 }}>
+                ← Newer
+              </button>
+              <span style={{ fontSize: 12, color: "#6b7280", alignSelf: "center" }}>
+                {activityPage + 1} / {Math.ceil(activities.length / ITEMS_PER_PAGE)}
+              </span>
+              <button disabled={(activityPage + 1) * ITEMS_PER_PAGE >= activities.length}
+                onClick={() => setActivityPage((p) => p + 1)}
+                style={{ padding: "4px 12px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 6, cursor: (activityPage + 1) * ITEMS_PER_PAGE >= activities.length ? "not-allowed" : "pointer", background: "#fff", color: "#374151", opacity: (activityPage + 1) * ITEMS_PER_PAGE >= activities.length ? 0.4 : 1 }}>
+                Older →
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Right column ──────────────────────────── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Patterns */}
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <div style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6" }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>Detected Patterns</h2>
+            </div>
+            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              {patterns.length === 0 ? (
+                <p style={{ fontSize: 13, color: "#9ca3af", textAlign: "center", padding: "20px 0" }}>
+                  No active patterns — monitoring for complaint clusters and volume spikes.
+                </p>
+              ) : patterns.map((p) => (
+                <PatternCard key={p.id} pattern={p} onResolve={handleResolvePattern} />
+              ))}
+            </div>
+          </div>
+
+          {/* Last 24h stats */}
+          {dayStats && (
+            <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+              <div style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>Last 24 Hours</h2>
+              </div>
+              <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 16 }}>
+                {Object.keys(dayStats.by_severity).length > 0 && (
+                  <div>
+                    <p style={{ fontSize: 12, color: "#6b7280", fontWeight: 500, margin: "0 0 8px" }}>By Severity</p>
+                    <MiniBarChart data={dayStats.by_severity} colorFn={(k) => k === "critical" ? "#dc2626" : k === "high" ? "#d97706" : k === "medium" ? "#2563eb" : "#10b981"} />
+                  </div>
+                )}
+                {Object.keys(dayStats.by_team).length > 0 && (
+                  <div>
+                    <p style={{ fontSize: 12, color: "#6b7280", fontWeight: 500, margin: "0 0 8px" }}>By Team</p>
+                    <MiniBarChart data={dayStats.by_team} colorFn={teamColor} />
+                  </div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div style={{ padding: "8px 10px", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
+                    <p style={{ fontSize: 10, color: "#6b7280", margin: 0 }}>Avg Confidence</p>
+                    <p style={{ fontSize: 18, fontWeight: 700, color: "#059669", margin: "2px 0 0" }}>{pct(dayStats.avg_confidence)}</p>
+                  </div>
+                  <div style={{ padding: "8px 10px", background: "#fff7f7", borderRadius: 8, border: "1px solid #fecaca" }}>
+                    <p style={{ fontSize: 10, color: "#6b7280", margin: 0 }}>Avg Risk Gap</p>
+                    <p style={{ fontSize: 18, fontWeight: 700, color: "#dc2626", margin: "2px 0 0" }}>{pct(dayStats.avg_risk_gap)}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Resolution Activity */}
+          <ResolutionActivity caseStats={caseStats} dayStats={dayStats} />
+
+          {/* Customer Satisfaction */}
+          <SatisfactionPanel stats={satisfaction} />
+        </div>
+      </div>
+
+      {/* ── Cases Table ───────────────────────────── */}
+      <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>Cases</h2>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: "#6b7280" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <Bot style={{ width: 12, height: 12 }} /> auto
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <User style={{ width: 12, height: 12 }} /> manual
+              </span>
+            </div>
+            <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#f3f4f6", color: "#6b7280" }}>
+              {cases.length} total
+            </span>
+          </div>
+        </div>
+
+        {cases.length === 0 ? (
+          <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 13, padding: "40px 0" }}>
+            No cases yet. Simulate complaints to create cases.
+          </p>
+        ) : (
+          <>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ background: "#f9fafb" }}>
+                    {["Time", "Src", "Case #", "Narrative", "Product", "Severity", "Team", "Priority", "Status"].map((h) => (
+                      <th key={h} style={{ padding: "10px 8px", fontSize: 11, fontWeight: 600, color: "#6b7280", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedCases.map((c) => (
+                    <CaseRow
+                      key={c.id}
+                      c={c}
+                      isExpanded={expandedCase === c.case_number}
+                      onClick={() => setExpandedCase(expandedCase === c.case_number ? null : c.case_number)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Expanded case detail */}
+            {expandedCase && (
+              <div style={{ padding: 20, background: "#f8fafc", borderTop: "1px solid #e5e7eb" }}>
+                {loadingDetail ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", padding: "24px 0" }}>
+                    <Loader2 style={{ width: 18, height: 18, color: "#6b7280" }} className="animate-spin" />
+                    <span style={{ fontSize: 13, color: "#6b7280" }}>Loading case details…</span>
+                  </div>
+                ) : caseDetail ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 24 }}>
+                    {/* Left: Task Timeline */}
+                    <div>
+                      <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>
+                        Task Timeline
+                      </h3>
+                      <TaskTimeline
+                        caseNumber={expandedCase}
+                        tasks={caseDetail.tasks}
+                        onTaskComplete={() => {}}
+                        onRefresh={() => fetchCaseDetail(expandedCase)}
+                      />
+                    </div>
+                    {/* Right: Case summary */}
+                    <CaseSummaryCard
+                      caseDetail={caseDetail}
+                      caseNumber={expandedCase}
+                      onResolve={handleResolveCase}
+                      onDispute={handleDisputeCase}
+                    />
+                  </div>
+                ) : (
+                  <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                    Could not load case detail.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {cases.length > ITEMS_PER_PAGE && (
+              <div style={{ padding: "12px 16px", borderTop: "1px solid #f3f4f6", display: "flex", justifyContent: "center", gap: 8 }}>
+                <button disabled={casePage === 0} onClick={() => setCasePage((p) => p - 1)}
+                  style={{ padding: "5px 14px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 6, cursor: casePage === 0 ? "not-allowed" : "pointer", background: "#fff", color: "#374151", opacity: casePage === 0 ? 0.4 : 1 }}>
+                  ← Prev
+                </button>
+                <span style={{ fontSize: 12, color: "#6b7280", alignSelf: "center" }}>
+                  Page {casePage + 1} of {Math.ceil(cases.length / ITEMS_PER_PAGE)}
+                </span>
+                <button disabled={(casePage + 1) * ITEMS_PER_PAGE >= cases.length}
+                  onClick={() => setCasePage((p) => p + 1)}
+                  style={{ padding: "5px 14px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 6, cursor: (casePage + 1) * ITEMS_PER_PAGE >= cases.length ? "not-allowed" : "pointer", background: "#fff", color: "#374151", opacity: (casePage + 1) * ITEMS_PER_PAGE >= cases.length ? 0.4 : 1 }}>
+                  Next →
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── CSS animations ───────────────────────── */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.4); }
+          50% { box-shadow: 0 0 0 6px rgba(16,185,129,0); }
+        }
+      `}</style>
+    </div>
+  );
+}

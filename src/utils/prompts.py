@@ -121,6 +121,8 @@ COMPLIANCE RISK SCORE (0.0 to 1.0):
 - 0.6–0.8: likely regulatory violation requiring attention
 - 0.8–1.0: severe violation, enforcement risk
 
+CONFIDENCE CALIBRATION: When the complaint narrative clearly describes a financial product, assign confidence of 0.85 or higher. Reserve confidence below 0.70 only for truly ambiguous narratives where the product category is genuinely unclear. Most well-written complaints should receive 0.80–0.95 confidence.
+
 Always respond with valid JSON only, no markdown fences."""
 
 CLASSIFIER_USER_TEMPLATE = """Classify this CFPB consumer complaint.

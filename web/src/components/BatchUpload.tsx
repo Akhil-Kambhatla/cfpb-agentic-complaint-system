@@ -468,10 +468,14 @@ export default function BatchUpload() {
                       <td style={{ padding: "8px 10px" }}>
                         <div style={{ display: "flex", gap: 4 }}>
                           {row.human_review_needed && (
-                            <span title="Human review needed" style={{ fontSize: 13 }}>⚠️</span>
+                            <span title="Human review needed">
+                              <AlertTriangle style={{ width: 13, height: 13, color: "#d97706" }} />
+                            </span>
                           )}
                           {row.slack_alert_sent && (
-                            <span title="High-risk Slack alert sent" style={{ fontSize: 13 }}>💬</span>
+                            <span title="High-risk Slack alert sent">
+                              <CheckCircle2 style={{ width: 13, height: 13, color: "#0ea5e9" }} />
+                            </span>
                           )}
                         </div>
                       </td>

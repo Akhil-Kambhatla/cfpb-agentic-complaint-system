@@ -197,7 +197,7 @@ function RiskGapBar({ riskGap, regulatoryRisk, resolutionProb }: {
           }}
         >
           <span style={{ fontSize: 11, color: "#c2410c", fontWeight: 600 }}>
-            ⚠ Gap: {gapPct} percentage points below baseline — underperforming
+            [ALERT] Gap: {gapPct} percentage points below baseline — underperforming
           </span>
         </motion.div>
       )}

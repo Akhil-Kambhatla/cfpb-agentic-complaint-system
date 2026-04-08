@@ -7,6 +7,7 @@ import { Brain } from "lucide-react";
 const tabs = [
   { href: "/about", label: "About" },
   { href: "/analyze", label: "Analyze" },
+  { href: "/monitor", label: "Monitor" },
   { href: "/evaluation", label: "Evaluation" },
 ];
 

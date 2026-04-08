@@ -12,6 +12,9 @@ data/processed/
 *.csv
 !data/sample/*.csv
 
+# SQLite database (generated at runtime)
+data/complaints.db
+
 # IDE
 .vscode/settings.json
 .idea/

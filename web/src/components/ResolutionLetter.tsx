@@ -59,7 +59,7 @@ function EmailModal({ onClose, letter }: { onClose: () => void; letter: string }
               <Check style={{ width: 24, height: 24, color: "#059669" }} />
             </div>
             <p style={{ fontSize: 13, fontWeight: 700, color: "#059669", margin: "0 0 4px" }}>
-              Email queued for delivery ✓
+              Email queued for delivery
             </p>
             <p style={{ fontSize: 11, color: "#9ca3af", margin: 0 }}>
               Demo mode — delivery simulated. In production, this would send via your configured email provider.

@@ -253,6 +253,51 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
     async for event in emit("pipeline", "complete", full_result):
         yield event
 
+    # Persist to database (manual analysis)
+    try:
+        import json as _json
+        from src.data.database import save_complaint, save_activity
+        cls_d = _safe_dict(classification)
+        risk_d = _safe_dict(risk)
+        routing_d = _safe_dict(routing)
+        quality_d = _safe_dict(quality)
+        total_elapsed = sum(v for v in {}.values())  # approximate
+        save_complaint({
+            "complaint_id": complaint.complaint_id,
+            "narrative": complaint.narrative,
+            "company": complaint.company or "",
+            "state": complaint.state or "",
+            "source": "manual",
+            "product": cls_d.get("predicted_product", ""),
+            "issue": cls_d.get("predicted_issue", ""),
+            "severity": cls_d.get("severity", ""),
+            "compliance_risk": cls_d.get("compliance_risk_score", 0.0),
+            "resolution_probability": risk_d.get("resolution_probability", 0.0),
+            "resolution_ci_lower": risk_d.get("credible_interval_lower", 0.0),
+            "resolution_ci_upper": risk_d.get("credible_interval_upper", 0.0),
+            "risk_gap": risk_d.get("risk_gap", 0.0),
+            "assigned_team": routing_d.get("assigned_team", ""),
+            "priority": routing_d.get("priority_level", ""),
+            "overall_confidence": quality_d.get("overall_confidence", 0.0),
+            "quality_flag": quality_d.get("quality_flag", "pass"),
+            "human_review_needed": 0,
+            "auto_processed": 0,
+            "slack_team_sent": 1 if team_sent else 0,
+            "slack_alert_sent": 1 if slack_sent else 0,
+            "email_sent": 0,
+            "processing_time_seconds": 0.0,
+            "full_result_json": _json.dumps(full_result),
+        })
+        save_activity(
+            "process",
+            f"[MANUAL] Complaint analyzed manually. Product: {cls_d.get('predicted_product', '')}. "
+            f"Team: {routing_d.get('assigned_team', '')}. Confidence: {round(quality_d.get('overall_confidence', 0) * 100)}%",
+            complaint.complaint_id,
+            "info",
+        )
+    except Exception as _db_exc:
+        logger.warning("DB save failed for manual complaint: %s", _db_exc)
+
 
 @router.post("/analyze")
 async def analyze(req: AnalyzeRequest):

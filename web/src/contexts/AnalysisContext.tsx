@@ -252,7 +252,7 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
               addLog("Router", `Alert sent to #${channel}`, "success");
             }
             if (slackSent) {
-              addLog("Quality Check", "⚠️ High-risk alert sent to #cfpb-alerts", "warning");
+              addLog("Quality Check", "[ALERT] High-risk alert sent to #cfpb-alerts", "warning");
             }
 
             setPhase("complete");

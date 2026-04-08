@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Clock,
+  ExternalLink,
   Loader2,
   Play,
   Tag,
@@ -151,6 +154,7 @@ export default function AnalyzePage() {
   const [metaOpen, setMetaOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [resultsVisible, setResultsVisible] = useState(false);
+  const [recentCase, setRecentCase] = useState<{ case_number: string; status: string; task_summary?: { completed: number; total: number } } | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   const isRunning = phase === "running";
@@ -160,12 +164,21 @@ export default function AnalyzePage() {
   // Delay showing results until pipeline animation fully completes
   useEffect(() => {
     if (isComplete) {
-      const timer = setTimeout(() => {
-        setResultsVisible(true);
-      }, 700);
-      return () => clearTimeout(timer);
+      const timer = setTimeout(() => setResultsVisible(true), 700);
+      // Fetch most recent case for case number display
+      const caseTimer = setTimeout(async () => {
+        try {
+          const r = await fetch("http://localhost:8000/api/cases?limit=1");
+          if (r.ok) {
+            const data = await r.json();
+            if (data.cases && data.cases.length > 0) setRecentCase(data.cases[0]);
+          }
+        } catch {}
+      }, 2000);
+      return () => { clearTimeout(timer); clearTimeout(caseTimer); };
     } else {
       setResultsVisible(false);
+      setRecentCase(null);
     }
   }, [isComplete]);
 
@@ -445,7 +458,7 @@ export default function AnalyzePage() {
                   animate={{ opacity: 1 }}
                   style={{ fontSize: 12, color: "#059669", fontWeight: 600 }}
                 >
-                  ✓ Complete {totalTime ? `· ${totalTime}s` : ""}
+                  Complete {totalTime ? `· ${totalTime}s` : ""}
                 </motion.span>
               )}
             </div>
@@ -482,6 +495,39 @@ export default function AnalyzePage() {
               animate="visible"
               style={{ display: "flex", flexDirection: "column", gap: 16 }}
             >
+              {/* Case number badge */}
+              {recentCase && (
+                <motion.div variants={resultItem}>
+                  <div style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "12px 18px", borderRadius: 12,
+                    background: "#eff6ff", border: "1px solid #bfdbfe",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <CheckCircle2 style={{ width: 18, height: 18, color: "#2563eb" }} />
+                      <div>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: "#1d4ed8", marginRight: 12 }}>
+                          Case #{recentCase.case_number}
+                        </span>
+                        <span style={{ fontSize: 12, color: "#3b82f6" }}>
+                          Status: {recentCase.status?.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                        </span>
+                      </div>
+                    </div>
+                    <a
+                      href="/monitor"
+                      style={{
+                        display: "flex", alignItems: "center", gap: 5,
+                        fontSize: 12, color: "#2563eb", fontWeight: 600,
+                        textDecoration: "none",
+                      }}
+                    >
+                      View on Monitor <ExternalLink style={{ width: 12, height: 12 }} />
+                    </a>
+                  </div>
+                </motion.div>
+              )}
+
               {/* ← New Analysis button */}
               <motion.div variants={resultItem} style={{ display: "flex", justifyContent: "flex-end" }}>
                 <motion.button

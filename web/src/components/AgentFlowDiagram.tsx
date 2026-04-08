@@ -375,14 +375,14 @@ function StandardNode({ nodeKey, label, subLabel, Icon, state, enterDelay, slack
           initial={{ opacity: 0, scale: 0 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.3 }}
-          title="⚠️ High-risk alert sent to #cfpb-alerts"
+          title="[ALERT] High-risk alert sent to #cfpb-alerts"
           style={{
-            fontSize: 14, flexShrink: 0, cursor: "default",
-            padding: "2px 6px", borderRadius: 6,
-            background: "#fff7ed", border: "1px solid #fdba74",
+            fontSize: 10, flexShrink: 0, cursor: "default",
+            padding: "2px 6px", borderRadius: 6, fontWeight: 600,
+            background: "#fff7ed", border: "1px solid #fdba74", color: "#d97706",
           }}
         >
-          💬
+          ALERT
         </motion.div>
       )}
     </motion.div>
@@ -519,7 +519,7 @@ function EventChainNode({ state }: { state: AgentState }) {
                 padding: "2px 7px",
                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
               }}>
-                {i === 0 ? `⚠ ${edge.cause}` : edge.effect}
+                {i === 0 ? `[ROOT] ${edge.cause}` : edge.effect}
               </div>
               {i < Math.min(chain.length - 1, 2) && (
                 <div style={{ fontSize: 9, color: "#9ca3af", textAlign: "center" }}>↓</div>
@@ -622,9 +622,9 @@ function RouterNode({ state, teamAlertSent }: { state: AgentState; teamAlertSent
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: 0.4 }}
                   title={`Alert sent to #team-${team.replace(/_/g, "-")}`}
-                  style={{ fontSize: 11, flexShrink: 0 }}
+                  style={{ fontSize: 10, flexShrink: 0, padding: "1px 5px", borderRadius: 4, background: "#eff6ff", border: "1px solid #bfdbfe", color: "#2563eb", fontWeight: 600 }}
                 >
-                  💬
+                  SENT
                 </motion.span>
               )}
             </div>
