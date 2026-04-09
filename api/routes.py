@@ -238,30 +238,30 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
         slack_sent = await loop.run_in_executor(None, lambda: send_slack_alert(summary))
         logger.info(f"[PIPELINE] SSE High-risk alert sent: {slack_sent}")
 
-    # Final complete event
-    full_result = {
-        "complaint": _safe_dict(complaint),
-        "classification": _safe_dict(classification),
-        "event_chain": _safe_dict(event_chain),
-        "risk_analysis": _safe_dict(risk),
-        "routing": _safe_dict(routing),
-        "resolution": _safe_dict(resolution),
-        "quality_check": _safe_dict(quality),
-        "slack_alert_sent": slack_sent,
-        "team_alert_sent": team_sent,
-    }
-    async for event in emit("pipeline", "complete", full_result):
-        yield event
-
-    # Persist to database (manual analysis)
+    # Persist to database and create case (manual analysis)
+    case_number = None
     try:
         import json as _json
-        from src.data.database import save_complaint, save_activity
+        from src.data.database import save_complaint, save_activity, create_case, create_case_tasks
+        from src.agents.task_generator import generate_tasks
+        from src.utils.email_sender import send_acknowledgment_email
         cls_d = _safe_dict(classification)
         risk_d = _safe_dict(risk)
         routing_d = _safe_dict(routing)
         quality_d = _safe_dict(quality)
-        total_elapsed = sum(v for v in {}.values())  # approximate
+
+        full_result_base = {
+            "complaint": _safe_dict(complaint),
+            "classification": cls_d,
+            "event_chain": _safe_dict(event_chain),
+            "risk_analysis": risk_d,
+            "routing": routing_d,
+            "resolution": _safe_dict(resolution),
+            "quality_check": quality_d,
+            "slack_alert_sent": slack_sent,
+            "team_alert_sent": team_sent,
+        }
+
         save_complaint({
             "complaint_id": complaint.complaint_id,
             "narrative": complaint.narrative,
@@ -286,17 +286,58 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
             "slack_alert_sent": 1 if slack_sent else 0,
             "email_sent": 0,
             "processing_time_seconds": 0.0,
-            "full_result_json": _json.dumps(full_result),
+            "full_result_json": _json.dumps(full_result_base),
         })
+
+        # Create case and tasks (same as autonomous engine)
+        complaint_data = {
+            "complaint_id": complaint.complaint_id,
+            "narrative": complaint.narrative,
+            "company": complaint.company or "",
+            "state": complaint.state or "",
+            "auto_processed": False,
+        }
+        case_info = create_case(complaint_data, full_result_base)
+        case_number = case_info["case_number"]
+        case_id = case_info["id"]
+
+        product = cls_d.get("predicted_product", "")
+        issue = cls_d.get("predicted_issue", "")
+        team = routing_d.get("assigned_team", "customer_service")
+        resolution_steps = _safe_dict(resolution).get("remediation_steps", [])
+        tasks = generate_tasks(product, issue, team, resolution_steps)
+        create_case_tasks(case_id, tasks)
+
+        # Send acknowledgment email
+        send_acknowledgment_email({"case_number": case_number, "product": product, "assigned_team": team})
+
         save_activity(
             "process",
-            f"[MANUAL] Complaint analyzed manually. Product: {cls_d.get('predicted_product', '')}. "
-            f"Team: {routing_d.get('assigned_team', '')}. Confidence: {round(quality_d.get('overall_confidence', 0) * 100)}%",
+            f"[MANUAL] Case {case_number} created from manual analysis. "
+            f"Product: {product}. Team: {team}. "
+            f"Confidence: {round(quality_d.get('overall_confidence', 0) * 100)}%",
             complaint.complaint_id,
             "info",
+            {"case_number": case_number},
         )
     except Exception as _db_exc:
-        logger.warning("DB save failed for manual complaint: %s", _db_exc)
+        logger.warning("DB save/case creation failed for manual complaint: %s", _db_exc)
+
+    # Final complete event (emitted after DB ops so case_number is available)
+    full_result = {
+        "complaint": _safe_dict(complaint),
+        "classification": _safe_dict(classification),
+        "event_chain": _safe_dict(event_chain),
+        "risk_analysis": _safe_dict(risk),
+        "routing": _safe_dict(routing),
+        "resolution": _safe_dict(resolution),
+        "quality_check": _safe_dict(quality),
+        "slack_alert_sent": slack_sent,
+        "team_alert_sent": team_sent,
+        "case_number": case_number,
+    }
+    async for event in emit("pipeline", "complete", full_result):
+        yield event
 
 
 @router.post("/analyze")

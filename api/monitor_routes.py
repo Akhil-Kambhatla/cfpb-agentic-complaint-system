@@ -131,6 +131,14 @@ async def monitor_stats(days: int = Query(default=7, ge=1, le=90)):
     return get_stats(days=days)
 
 
+@monitor_router.get("/monitor/chart-data")
+async def chart_data(days: int = Query(default=7, ge=1, le=30)):
+    """Return complaint counts grouped by day for the last N days."""
+    from src.data.database import get_complaints_by_day
+    data = get_complaints_by_day(days=days)
+    return {"data": data, "days": days}
+
+
 # ──────────────────────────────────────────────
 # Recent complaints
 # ──────────────────────────────────────────────
@@ -176,34 +184,34 @@ async def get_monitor_complaints(
 
 _SIMULATION_COMPLAINTS = [
     {
-        "narrative": "My credit card company charged me $850 for a hotel booking through their travel portal after my flight was delayed. I called twice and they promised to resolve it but never called back. I filed a billing dispute and after 45 days they ruled it was my responsibility without providing investigation documents.",
-        "company": "Citibank",
-        "state": "MD",
-        "product": "Credit card",
-    },
-    {
-        "narrative": "A debt collector keeps calling me about a medical bill I already paid over a year ago. I sent proof of payment three times. They reported the debt to all three credit bureaus and my score dropped 85 points. They also called my elderly mother without my authorization.",
+        "narrative": "A debt collector called my workplace three times this week threatening wage garnishment for a debt I do not owe. They refuse to provide written validation despite my repeated requests. I have an attorney reviewing this matter and intend to file an FDCPA complaint with the CFPB. The amount they claim is $4,200 which I have never owed. This is causing severe distress and threatening my employment.",
         "company": "Enhanced Recovery Company",
         "state": "NY",
         "product": "Debt collection",
     },
     {
-        "narrative": "My mortgage company force-placed an insurance policy for $3,200 after a brief coverage lapse. We immediately got new insurance and sent proof but they keep charging us. Our monthly payment increased by $267 and every representative gives different answers.",
+        "narrative": "My bank has been charging me unauthorized monthly fees of $45 since January, totaling over $300. When I called to dispute, they closed my account without warning, causing three automatic payments to bounce and incurring $105 in overdraft fees from linked accounts. I am a senior citizen on a fixed income and this has caused severe financial hardship. I have filed complaints with my state attorney general and intend to pursue legal action.",
+        "company": "Wells Fargo",
+        "state": "FL",
+        "product": "Checking or savings account",
+    },
+    {
+        "narrative": "A debt collector keeps calling me about a medical bill I already paid over a year ago. I sent proof of payment three times. They reported the debt to all three credit bureaus and my credit score dropped 85 points. They also called my elderly mother without my authorization. I have been denied an apartment rental because of this false reporting.",
+        "company": "Enhanced Recovery Company",
+        "state": "NY",
+        "product": "Debt collection",
+    },
+    {
+        "narrative": "My mortgage company force-placed an insurance policy for $3,200 after a brief coverage lapse. We immediately got new insurance and sent proof but they keep charging us. Our monthly payment increased by $267 and every representative gives different answers about why the backdated insurance is still on our account.",
         "company": "Bank of America",
         "state": "CA",
         "product": "Mortgage",
     },
     {
-        "narrative": "I deposited $2,500 cash at a Chase branch. The teller recorded only $1,300. After 45 minutes the manager confirmed the shortage but my claim was denied. I am missing $1,200 with no recourse.",
-        "company": "JPMorgan Chase",
-        "state": "CA",
-        "product": "Checking or savings account",
-    },
-    {
-        "narrative": "My bank charged me 6 overdraft fees in one day totaling $210 for transactions that should have been declined. I had opted out of overdraft protection specifically to avoid this. They refused to reverse more than one fee despite my opt-out being on file.",
-        "company": "Wells Fargo",
-        "state": "TX",
-        "product": "Checking or savings account",
+        "narrative": "My credit card company charged me $850 for a hotel booking through their travel portal after my flight was delayed. I called twice and they promised to resolve it but never called back. I filed a billing dispute and after 45 days they ruled it was my responsibility without providing investigation documents as required under the Fair Credit Billing Act.",
+        "company": "Citibank",
+        "state": "MD",
+        "product": "Credit card",
     },
 ]
 

@@ -18,11 +18,13 @@ from src.data.database import (
     create_case,
     create_case_tasks,
     get_complaints_by_company,
+    get_existing_cluster,
     get_overdue_tasks,
     save_activity,
     save_complaint,
     save_pattern,
     update_case_status,
+    update_pattern_count,
     update_task_status,
 )
 from src.utils.email_sender import send_acknowledgment_email
@@ -390,31 +392,36 @@ def _detect_patterns(company: Optional[str], product: str) -> None:
                     f"{len(ids)} complaints about {company} / {prod} in the last 7 days"
                 )
                 try:
-                    save_pattern(
-                        {
-                            "pattern_type": "complaint_cluster",
-                            "description": description,
-                            "company": company,
-                            "product": prod,
-                            "issue": "",
-                            "complaint_count": len(ids),
-                            "time_window_hours": 168,
-                            "complaint_ids": json.dumps(ids),
-                        }
-                    )
-                    save_activity(
-                        "pattern_detected",
-                        f"[PATTERN] Complaint cluster detected: {description}",
-                        None,
-                        "warning",
-                        {"company": company, "product": prod, "count": len(ids)},
-                    )
-                    _send_alert_message(
-                        f"[PATTERN] {len(ids)} complaints about {company} — "
-                        f"{prod} in the last 7 days. Review recommended."
-                    )
+                    existing = get_existing_cluster(company, prod)
+                    if existing:
+                        # Update existing cluster instead of creating a duplicate
+                        update_pattern_count(existing["id"], len(ids), json.dumps(ids))
+                    else:
+                        save_pattern(
+                            {
+                                "pattern_type": "complaint_cluster",
+                                "description": description,
+                                "company": company,
+                                "product": prod,
+                                "issue": "",
+                                "complaint_count": len(ids),
+                                "time_window_hours": 168,
+                                "complaint_ids": json.dumps(ids),
+                            }
+                        )
+                        save_activity(
+                            "pattern_detected",
+                            f"[PATTERN] Complaint cluster detected: {description}",
+                            None,
+                            "warning",
+                            {"company": company, "product": prod, "count": len(ids)},
+                        )
+                        _send_alert_message(
+                            f"[PATTERN] {len(ids)} complaints about {company} — "
+                            f"{prod} in the last 7 days. Review recommended."
+                        )
                 except Exception:
-                    pass  # duplicate pattern — ignore
+                    pass  # ignore errors
 
     # Volume spike detection removed — only complaint clusters are tracked
 

@@ -285,8 +285,33 @@ async def rate_satisfaction(case_number: str, score: int = Query(..., ge=1, le=5
 
     case_id = case["id"]
 
-    # Find or create survey record
+    # Check for duplicate rating
     from src.data.database import _get_conn
+    conn_check = _get_conn()
+    try:
+        already_rated = conn_check.execute(
+            "SELECT id FROM satisfaction_surveys WHERE case_number = ? AND score IS NOT NULL LIMIT 1",
+            (case_number,),
+        ).fetchone()
+    finally:
+        conn_check.close()
+
+    if already_rated:
+        return HTMLResponse(content="""<!DOCTYPE html>
+<html>
+<head><title>Already Rated</title></head>
+<body style="font-family: sans-serif; text-align: center; padding: 60px 20px;">
+  <h1 style="color: #374151;">Already Rated</h1>
+  <p style="font-size: 16px; color: #6b7280;">
+    You have already submitted a rating for Case {case_number}. Thank you!
+  </p>
+  <p style="color: #9ca3af; margin-top: 40px; font-size: 14px;">
+    CFPB Complaint Intelligence System — UMD Agentic AI Challenge 2026
+  </p>
+</body>
+</html>""".format(case_number=case_number))
+
+    # Find or create survey record
     conn = _get_conn()
     try:
         row = conn.execute(

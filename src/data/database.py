@@ -276,6 +276,46 @@ def save_pattern(pattern_data: dict) -> int:
         conn.close()
 
 
+def get_existing_cluster(company: str, product: str) -> Optional[dict]:
+    """Return the most recent unresolved complaint_cluster for company+product, or None."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            """
+            SELECT * FROM detected_patterns
+            WHERE pattern_type = 'complaint_cluster'
+              AND company = ? AND product = ? AND resolved = 0
+            ORDER BY detected_at DESC LIMIT 1
+            """,
+            (company, product),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_pattern_count(pattern_id: int, new_count: int, complaint_ids: str) -> None:
+    """Update the complaint_count and complaint_ids of an existing pattern."""
+    conn = _get_conn()
+    try:
+        conn.execute(
+            """
+            UPDATE detected_patterns
+            SET complaint_count = ?, complaint_ids = ?,
+                description = (
+                    SELECT REPLACE(description, CAST(complaint_count AS TEXT) || ' complaints',
+                                   CAST(? AS TEXT) || ' complaints')
+                    FROM detected_patterns WHERE id = ?
+                )
+            WHERE id = ?
+            """,
+            (new_count, complaint_ids, new_count, pattern_id, pattern_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_recent_complaints(hours: int = 24, limit: int = 50) -> list[dict]:
     """Get recently processed complaints."""
     conn = _get_conn()
@@ -472,6 +512,32 @@ def get_stats(days: int = 7) -> dict:
         conn.close()
 
 
+def get_complaints_by_day(days: int = 7) -> list[dict]:
+    """Return complaint count grouped by calendar day for the last N days."""
+    conn = _get_conn()
+    try:
+        since = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
+        rows = conn.execute(
+            """
+            SELECT DATE(created_at) as day, COUNT(*) as count
+            FROM processed_complaints
+            WHERE DATE(created_at) >= ?
+            GROUP BY DATE(created_at)
+            ORDER BY day ASC
+            """,
+            (since,),
+        ).fetchall()
+        counts_by_day = {r["day"]: r["count"] for r in rows}
+        # Fill in zeros for missing days
+        result = []
+        for i in range(days):
+            d = (datetime.utcnow() - timedelta(days=days - 1 - i)).date().isoformat()
+            result.append({"date": d, "count": counts_by_day.get(d, 0)})
+        return result
+    finally:
+        conn.close()
+
+
 def get_system_state() -> dict:
     """Return all system state key-value pairs as a dict."""
     conn = _get_conn()
@@ -662,17 +728,27 @@ def get_case_by_number(case_number: str) -> dict:
 
 
 def get_cases(status: Optional[str] = None, limit: int = 50) -> list[dict]:
-    """Get cases filtered by status."""
+    """Get cases filtered by status, with task summary counts included."""
     conn = _get_conn()
     try:
+        base_query = """
+            SELECT c.*,
+              COALESCE(SUM(CASE WHEN t.task_type = 'human' THEN 1 ELSE 0 END), 0) AS task_total,
+              COALESCE(SUM(CASE WHEN t.task_type = 'human' AND t.status = 'completed' THEN 1 ELSE 0 END), 0) AS task_completed,
+              COALESCE(SUM(CASE WHEN t.task_type = 'human'
+                AND (t.status = 'overdue' OR (t.due_date < datetime('now') AND t.status = 'pending'))
+                THEN 1 ELSE 0 END), 0) AS task_overdue
+            FROM cases c
+            LEFT JOIN case_tasks t ON c.id = t.case_id
+        """
         if status:
             rows = conn.execute(
-                "SELECT * FROM cases WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                base_query + " WHERE c.status = ? GROUP BY c.id ORDER BY c.created_at DESC LIMIT ?",
                 (status, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM cases ORDER BY created_at DESC LIMIT ?", (limit,)
+                base_query + " GROUP BY c.id ORDER BY c.created_at DESC LIMIT ?", (limit,)
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
     finally:

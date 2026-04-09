@@ -121,7 +121,7 @@ COMPLIANCE RISK SCORE (0.0 to 1.0):
 - 0.6–0.8: likely regulatory violation requiring attention
 - 0.8–1.0: severe violation, enforcement risk
 
-CONFIDENCE CALIBRATION: When the complaint narrative clearly describes a financial product, assign confidence of 0.85 or higher. Reserve confidence below 0.70 only for truly ambiguous narratives where the product category is genuinely unclear. Most well-written complaints should receive 0.80–0.95 confidence.
+CONFIDENCE CALIBRATION: When the complaint narrative clearly describes a financial product, assign confidence of 0.85 or higher. Reserve confidence below 0.70 only for truly ambiguous narratives where the product category is genuinely unclear. Most well-written complaints should receive 0.80–0.95 confidence. Never assign confidence below 0.50 — if the complaint mentions any financial product or service, there is always at least moderate confidence in the most likely category.
 
 Always respond with valid JSON only, no markdown fences."""
 
@@ -227,11 +227,11 @@ VALID TEAMS:
 - legal: threats of legal action, lawsuits, systemic violations
 - executive_escalation: critical severity, media attention risk, or unresolved prior escalations
 
-PRIORITY LEVELS (based on Bayesian risk gap):
-- P1 (critical): risk_gap > 0.30 — immediate action required, significantly below resolution baseline
-- P2 (high): risk_gap > 0.15 — respond within 24 hours, high financial impact or regulatory risk
-- P3 (medium): risk_gap > 0.05 — respond within 3 business days, moderate impact
-- P4 (low): risk_gap ≤ 0.05 — respond within 5 business days, routine complaint
+PRIORITY LEVELS — be aggressive with P1/P2 assignment:
+- P1 (critical): risk_gap > 0.25, OR complaint mentions attorney/lawsuit AND dollar amount > $1000 AND severity is critical, OR severity is critical AND compliance_risk > 0.8
+- P2 (high): risk_gap > 0.15, OR (severity is high AND compliance_risk > 0.7), OR complaint mentions credit bureau reporting AND score drop > 50 points
+- P3 (medium): severity is high OR compliance_risk > 0.5 OR risk_gap > 0.05
+- P4 (low): routine complaints with low risk, risk_gap ≤ 0.05 and severity low/medium
 
 Always respond with valid JSON only, no markdown fences."""
 

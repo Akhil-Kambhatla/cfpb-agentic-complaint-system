@@ -146,6 +146,7 @@ export default function AnalyzePage() {
     totalTime,
     slackAlertSent,
     teamAlertSent,
+    caseNumber,
     handleAnalyze,
     resetAnalysis,
   } = useAnalysis();
@@ -154,7 +155,6 @@ export default function AnalyzePage() {
   const [metaOpen, setMetaOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [resultsVisible, setResultsVisible] = useState(false);
-  const [recentCase, setRecentCase] = useState<{ case_number: string; status: string; task_summary?: { completed: number; total: number } } | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   const isRunning = phase === "running";
@@ -165,20 +165,9 @@ export default function AnalyzePage() {
   useEffect(() => {
     if (isComplete) {
       const timer = setTimeout(() => setResultsVisible(true), 700);
-      // Fetch most recent case for case number display
-      const caseTimer = setTimeout(async () => {
-        try {
-          const r = await fetch("http://localhost:8000/api/cases?limit=1");
-          if (r.ok) {
-            const data = await r.json();
-            if (data.cases && data.cases.length > 0) setRecentCase(data.cases[0]);
-          }
-        } catch {}
-      }, 2000);
-      return () => { clearTimeout(timer); clearTimeout(caseTimer); };
+      return () => clearTimeout(timer);
     } else {
       setResultsVisible(false);
-      setRecentCase(null);
     }
   }, [isComplete]);
 
@@ -496,7 +485,7 @@ export default function AnalyzePage() {
               style={{ display: "flex", flexDirection: "column", gap: 16 }}
             >
               {/* Case number badge */}
-              {recentCase && (
+              {caseNumber && (
                 <motion.div variants={resultItem}>
                   <div style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -507,10 +496,10 @@ export default function AnalyzePage() {
                       <CheckCircle2 style={{ width: 18, height: 18, color: "#2563eb" }} />
                       <div>
                         <span style={{ fontSize: 16, fontWeight: 700, color: "#1d4ed8", marginRight: 12 }}>
-                          Case #{recentCase.case_number}
+                          Case #{caseNumber} created
                         </span>
                         <span style={{ fontSize: 12, color: "#3b82f6" }}>
-                          Status: {recentCase.status?.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                          Open · tasks assigned · acknowledgment email sent
                         </span>
                       </div>
                     </div>
@@ -522,7 +511,7 @@ export default function AnalyzePage() {
                         textDecoration: "none",
                       }}
                     >
-                      View on Monitor <ExternalLink style={{ width: 12, height: 12 }} />
+                      Track on Monitor <ExternalLink style={{ width: 12, height: 12 }} />
                     </a>
                   </div>
                 </motion.div>

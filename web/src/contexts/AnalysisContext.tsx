@@ -57,6 +57,7 @@ interface AnalysisContextType {
   totalTime: number | null;
   slackAlertSent: boolean | null;
   teamAlertSent: boolean | null;
+  caseNumber: string | null;
 
   handleAnalyze: () => Promise<void>;
   resetAnalysis: () => void;
@@ -160,6 +161,7 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
   const [totalTime, setTotalTime] = useState<number | null>(null);
   const [slackAlertSent, setSlackAlertSent] = useState<boolean | null>(null);
   const [teamAlertSent, setTeamAlertSent] = useState<boolean | null>(null);
+  const [caseNumber, setCaseNumber] = useState<string | null>(null);
 
   const addLog = useCallback(
     (agent: string, message: string, type: LogEntry["type"] = "info") => {
@@ -182,6 +184,7 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
     setTotalTime(null);
     setSlackAlertSent(null);
     setTeamAlertSent(null);
+    setCaseNumber(null);
   }, []);
 
   const handleAnalyze = useCallback(async () => {
@@ -245,6 +248,9 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
             const teamSent = (pipelineResult?.team_alert_sent as boolean) ?? false;
             setSlackAlertSent(slackSent);
             setTeamAlertSent(teamSent);
+            if (pipelineResult?.case_number) {
+              setCaseNumber(pipelineResult.case_number as string);
+            }
 
             const assignedTeam = ((pipelineResult?.routing as Record<string, unknown>)?.assigned_team as string) ?? "";
             if (teamSent && assignedTeam) {
@@ -291,6 +297,7 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
         totalTime,
         slackAlertSent,
         teamAlertSent,
+        caseNumber,
         handleAnalyze,
         resetAnalysis,
       }}
