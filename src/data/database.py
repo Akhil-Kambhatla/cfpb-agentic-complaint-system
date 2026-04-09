@@ -139,6 +139,28 @@ def init_db() -> None:
                 status TEXT DEFAULT 'sent',
                 FOREIGN KEY (case_id) REFERENCES cases(id)
             );
+
+            CREATE TABLE IF NOT EXISTS sent_emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_type TEXT NOT NULL,
+                to_address TEXT NOT NULL,
+                subject TEXT,
+                case_number TEXT,
+                sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'sent'
+            );
+
+            CREATE TABLE IF NOT EXISTS routing_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_id INTEGER,
+                case_number TEXT,
+                product TEXT,
+                assigned_team TEXT,
+                outcome TEXT,
+                resolution_time_hours REAL,
+                satisfaction_score INTEGER,
+                recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         # Seed default system state
         defaults = [
@@ -794,5 +816,106 @@ def get_satisfaction_stats() -> dict:
             "response_rate": round(total_responded / total_sent * 100, 1) if total_sent else 0,
             "score_distribution": dist,
         }
+    finally:
+        conn.close()
+
+
+def save_sent_email(email_type: str, to_address: str, subject: str, case_number: str = "") -> None:
+    """Record a sent email in the sent_emails table."""
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO sent_emails (email_type, to_address, subject, case_number) VALUES (?, ?, ?, ?)",
+            (email_type, to_address, subject, case_number),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_recent_emails(limit: int = 50) -> list[dict]:
+    """Return recent sent emails ordered by newest first."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM sent_emails ORDER BY sent_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_due_scheduled_tasks() -> list[dict]:
+    """Return scheduled tasks that are due (due_date <= now) and still pending."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT ct.*, c.case_number, c.complaint_id, c.product, c.assigned_team,
+                   c.narrative_preview, c.status as case_status
+            FROM case_tasks ct
+            JOIN cases c ON ct.case_id = c.id
+            WHERE ct.task_type = 'scheduled'
+              AND ct.status = 'pending'
+              AND ct.due_date <= datetime('now')
+              AND c.status NOT IN ('closed')
+            ORDER BY ct.due_date ASC
+            LIMIT 20
+            """,
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def record_routing_feedback(
+    case_number: str,
+    product: str,
+    assigned_team: str,
+    outcome: str,
+    resolution_time_hours: float = 0.0,
+    satisfaction_score: int | None = None,
+) -> None:
+    """Record routing outcome for learning."""
+    conn = _get_conn()
+    try:
+        conn.execute(
+            """
+            INSERT INTO routing_feedback
+              (case_number, product, assigned_team, outcome, resolution_time_hours, satisfaction_score)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (case_number, product, assigned_team, outcome, resolution_time_hours, satisfaction_score),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_routing_success_rates() -> dict:
+    """Return success rate per (product, team) combination."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT product, assigned_team,
+                   COUNT(*) as total,
+                   SUM(CASE WHEN outcome = 'resolved' THEN 1 ELSE 0 END) as resolved,
+                   AVG(satisfaction_score) as avg_sat
+            FROM routing_feedback
+            GROUP BY product, assigned_team
+            HAVING total >= 3
+            """
+        ).fetchall()
+        result = {}
+        for row in rows:
+            key = f"{row['product']}::{row['assigned_team']}"
+            result[key] = {
+                "total": row["total"],
+                "success_rate": round(row["resolved"] / row["total"], 3),
+                "avg_satisfaction": round(row["avg_sat"] or 0, 2),
+            }
+        return result
     finally:
         conn.close()

@@ -15,14 +15,20 @@ import {
   Download,
   FileDown,
   FileText,
+  Inbox,
+  KanbanSquare,
   Loader2,
   Mail,
   MessageSquare,
   RefreshCw,
+  Table2,
   TrendingUp,
   User,
   XCircle,
 } from "lucide-react";
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
+} from "recharts";
 
 const API = "http://localhost:8000/api";
 const ITEMS_PER_PAGE = 20;
@@ -155,6 +161,21 @@ interface SatisfactionStats {
   score_distribution: Record<number, number>;
 }
 
+interface SentEmail {
+  id: number;
+  email_type: string;
+  to_address: string;
+  subject: string;
+  case_number: string;
+  sent_at: string;
+  status: string;
+}
+
+interface ChartPoint {
+  time: string;
+  count: number;
+}
+
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────
@@ -213,12 +234,13 @@ function pct(n: number): string {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string; border: string }> = {
-  open:                  { label: "Open",             bg: "#f3f4f6", color: "#374151",  border: "#d1d5db" },
-  in_progress:           { label: "In Progress",      bg: "#eff6ff", color: "#2563eb",  border: "#bfdbfe" },
-  action_taken:          { label: "Action Taken",     bg: "#f5f3ff", color: "#7c3aed",  border: "#ddd6fe" },
-  awaiting_confirmation: { label: "Awaiting Confirm", bg: "#fffbeb", color: "#d97706",  border: "#fde68a" },
-  closed:                { label: "Closed",           bg: "#f0fdf4", color: "#059669",  border: "#bbf7d0" },
-  escalated:             { label: "Escalated",        bg: "#fff1f2", color: "#dc2626",  border: "#fecaca" },
+  open:                  { label: "Open",               bg: "#f3f4f6", color: "#374151",  border: "#d1d5db" },
+  in_progress:           { label: "In Progress",        bg: "#eff6ff", color: "#2563eb",  border: "#bfdbfe" },
+  action_taken:          { label: "Action Taken",       bg: "#f5f3ff", color: "#7c3aed",  border: "#ddd6fe" },
+  awaiting_response:     { label: "Awaiting Response",  bg: "#fffbeb", color: "#d97706",  border: "#fde68a" },
+  awaiting_confirmation: { label: "Awaiting Response",  bg: "#fffbeb", color: "#d97706",  border: "#fde68a" }, // backward compat
+  closed:                { label: "Closed",             bg: "#f0fdf4", color: "#059669",  border: "#bbf7d0" },
+  escalated:             { label: "Escalated",          bg: "#fff1f2", color: "#dc2626",  border: "#fecaca" }, // badge only
 };
 
 // ──────────────────────────────────────────────
@@ -269,14 +291,24 @@ function ActivityItem({ entry }: { entry: ActivityEntry }) {
   const color = severityColor(entry.severity_level);
   const bg = severityBg(entry.severity_level);
   const border = severityBorder(entry.severity_level);
+  const isExpandable = !!(entry.complaint_id || entry.metadata_json);
+
+  // Parse metadata for inline summary
+  let meta: Record<string, unknown> = {};
+  try { meta = JSON.parse(entry.metadata_json || "{}"); } catch {}
+  const caseNumber = meta.case_number as string | undefined;
+  const riskGap = meta.risk_gap as number | undefined;
+  const severity = meta.severity as string | undefined;
+  const confidence = meta.confidence as number | undefined;
+
   return (
     <div
       style={{
         display: "flex", gap: 10, padding: "10px 12px", borderRadius: 8,
         background: bg, border: `1px solid ${border}`, borderLeft: `3px solid ${color}`,
-        cursor: entry.complaint_id ? "pointer" : "default",
+        cursor: isExpandable ? "pointer" : "default",
       }}
-      onClick={() => entry.complaint_id && setExpanded(!expanded)}
+      onClick={() => isExpandable && setExpanded(!expanded)}
     >
       <span style={{ flexShrink: 0, marginTop: 1, display: "flex", alignItems: "flex-start" }}>
         <ActivityIcon type={entry.action_type} desc={entry.description} />
@@ -290,18 +322,66 @@ function ActivityItem({ entry }: { entry: ActivityEntry }) {
             {relativeTime(entry.timestamp)}
           </span>
         </div>
-        {entry.complaint_id && (
-          <p style={{ fontSize: 11, color: "#6b7280", margin: "2px 0 0" }}>
-            ID: {entry.complaint_id.slice(0, 8)}… · click to expand
+        {entry.complaint_id && !expanded && (
+          <p style={{ fontSize: 11, color: "#9ca3af", margin: "2px 0 0" }}>
+            ID: {entry.complaint_id.slice(0, 8)}…
           </p>
         )}
-        {expanded && entry.metadata_json && (
-          <pre style={{
-            marginTop: 8, padding: 8, background: "#f3f4f6", borderRadius: 4,
-            fontSize: 11, color: "#374151", overflow: "auto", maxHeight: 120,
+        {expanded && (
+          <div style={{
+            marginTop: 8, padding: "10px 12px", background: "#f8fafc",
+            borderRadius: 6, border: "1px solid #e2e8f0",
+            display: "flex", flexDirection: "column", gap: 4,
           }}>
-            {JSON.stringify(JSON.parse(entry.metadata_json || "{}"), null, 2)}
-          </pre>
+            {entry.complaint_id && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "#6b7280", width: 90, flexShrink: 0 }}>Complaint ID</span>
+                <span style={{ fontSize: 11, color: "#374151", fontFamily: "monospace" }}>
+                  {entry.complaint_id}
+                </span>
+              </div>
+            )}
+            {caseNumber && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "#6b7280", width: 90, flexShrink: 0 }}>Case Number</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#2563eb" }}>{caseNumber}</span>
+              </div>
+            )}
+            {severity && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "#6b7280", width: 90, flexShrink: 0 }}>Severity</span>
+                <span style={{ fontSize: 11, color: severity === "critical" ? "#dc2626" : severity === "high" ? "#d97706" : "#374151", fontWeight: 600 }}>
+                  {severity.toUpperCase()}
+                </span>
+              </div>
+            )}
+            {riskGap !== undefined && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "#6b7280", width: 90, flexShrink: 0 }}>Risk Gap</span>
+                <span style={{ fontSize: 11, color: riskGap > 0.3 ? "#dc2626" : "#374151", fontWeight: 600 }}>
+                  {Math.round(riskGap * 100)}%
+                </span>
+              </div>
+            )}
+            {confidence !== undefined && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "#6b7280", width: 90, flexShrink: 0 }}>Confidence</span>
+                <span style={{ fontSize: 11, color: "#059669", fontWeight: 600 }}>{Math.round(confidence * 100)}%</span>
+              </div>
+            )}
+            {/* Show remaining metadata as compact key-value rows */}
+            {Object.entries(meta)
+              .filter(([k]) => !["case_number", "risk_gap", "severity", "confidence"].includes(k))
+              .slice(0, 4)
+              .map(([k, v]) => (
+                <div key={k} style={{ display: "flex", gap: 6 }}>
+                  <span style={{ fontSize: 11, color: "#6b7280", width: 90, flexShrink: 0 }}>
+                    {k.replace(/_/g, " ")}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#374151" }}>{String(v)}</span>
+                </div>
+              ))}
+          </div>
         )}
       </div>
     </div>
@@ -408,21 +488,80 @@ function TaskIcon({ task }: { task: CaseTask }) {
     const color = task.completed_by === "system" ? "#059669" : "#2563eb";
     return <CheckCircle2 style={{ width: 18, height: 18, color, flexShrink: 0 }} />;
   }
+  if (task.status === "failed") return <XCircle style={{ width: 18, height: 18, color: "#dc2626", flexShrink: 0 }} />;
   if (task.status === "overdue") return <AlertCircle style={{ width: 18, height: 18, color: "#dc2626", flexShrink: 0 }} />;
   if (task.status === "escalated") return <ArrowUpCircle style={{ width: 18, height: 18, color: "#dc2626", flexShrink: 0 }} />;
   if (task.task_type === "scheduled") return <Clock style={{ width: 18, height: 18, color: "#9ca3af", flexShrink: 0 }} />;
   return <Circle style={{ width: 18, height: 18, color: "#f59e0b", flexShrink: 0 }} />;
 }
 
+function TaskOpenModal({ task, caseDetail, onClose }: { task: CaseTask; caseDetail: CaseDetail | null; onClose: () => void }) {
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+    }} onClick={onClose}>
+      <div style={{
+        background: "#fff", borderRadius: 12, padding: 24, maxWidth: 520, width: "90%",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxHeight: "80vh", overflowY: "auto",
+      }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>
+            Task {task.task_number} — Details
+          </h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, color: "#9ca3af", cursor: "pointer" }}>×</button>
+        </div>
+
+        <div style={{ marginBottom: 14, padding: "10px 14px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: "#111827", margin: "0 0 4px" }}>{task.description}</p>
+          {task.regulation_reference && (
+            <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "#dbeafe", color: "#1e40af", fontWeight: 600 }}>
+              Reg: {task.regulation_reference}
+            </span>
+          )}
+        </div>
+
+        {task.regulation_reference && (
+          <div style={{ marginBottom: 14, padding: "10px 14px", background: "#fefce8", borderRadius: 8, border: "1px solid #fde68a" }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#92400e", margin: "0 0 4px" }}>Regulatory Requirement</p>
+            <p style={{ fontSize: 12, color: "#78350f", margin: 0 }}>{task.regulation_reference}</p>
+          </div>
+        )}
+
+        {caseDetail?.narrative_preview && (
+          <div style={{ marginBottom: 14 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", margin: "0 0 6px" }}>Complaint Narrative</p>
+            <p style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, margin: 0, padding: "10px 14px", background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+              {caseDetail.narrative_preview}
+            </p>
+          </div>
+        )}
+
+        <button onClick={onClose} style={{
+          width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb",
+          background: "#f9fafb", color: "#374151", fontSize: 12, fontWeight: 600, cursor: "pointer",
+        }}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TaskTimeline({
-  caseNumber, tasks, onTaskComplete, onRefresh,
+  caseNumber, tasks, caseDetail, onTaskComplete, onRefresh,
 }: {
   caseNumber: string;
   tasks: CaseTask[];
+  caseDetail: CaseDetail | null;
   onTaskComplete: (taskId: number) => void;
   onRefresh: () => void;
 }) {
   const [completing, setCompleting] = useState<number | null>(null);
+  const [openTask, setOpenTask] = useState<CaseTask | null>(null);
+
+  // Only show human tasks
+  const humanTasks = tasks.filter((t) => t.task_type === "human");
 
   async function markComplete(taskId: number) {
     setCompleting(taskId);
@@ -442,9 +581,11 @@ function TaskTimeline({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      {tasks.map((task, idx) => {
-        const isLast = idx === tasks.length - 1;
+    <>
+      {openTask && <TaskOpenModal task={openTask} caseDetail={caseDetail} onClose={() => setOpenTask(null)} />}
+      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {humanTasks.map((task, idx) => {
+        const isLast = idx === humanTasks.length - 1;
         const isOverdue = task.status === "overdue";
         return (
           <div key={task.id} style={{ display: "flex", gap: 12 }}>
@@ -489,6 +630,13 @@ function TaskTimeline({
                         {task.completed_at ? `, ${new Date(task.completed_at.endsWith("Z") ? task.completed_at : task.completed_at + "Z").toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}
                       </p>
                     </div>
+                  ) : task.status === "failed" ? (
+                    <div>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: "#dc2626", margin: 0 }}>FAILED</p>
+                      <p style={{ fontSize: 10, color: "#9ca3af", margin: "1px 0 0" }}>
+                        {task.notes || "Action not configured"}
+                      </p>
+                    </div>
                   ) : task.task_type === "scheduled" ? (
                     <div>
                       <p style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", margin: 0 }}>SCHEDULED</p>
@@ -514,18 +662,30 @@ function TaskTimeline({
                         </p>
                       )}
                       {task.task_type === "human" && (
-                        <button
-                          onClick={() => markComplete(task.id)}
-                          disabled={completing === task.id}
-                          style={{
-                            fontSize: 10, padding: "2px 8px", borderRadius: 5,
-                            border: "1px solid #10b981", background: "#f0fdf4",
-                            color: "#059669", cursor: completing === task.id ? "not-allowed" : "pointer",
-                            fontWeight: 600, opacity: completing === task.id ? 0.6 : 1,
-                          }}
-                        >
-                          {completing === task.id ? "…" : "Mark Complete"}
-                        </button>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button
+                            onClick={() => markComplete(task.id)}
+                            disabled={completing === task.id}
+                            style={{
+                              fontSize: 10, padding: "2px 8px", borderRadius: 5,
+                              border: "1px solid #10b981", background: "#f0fdf4",
+                              color: "#059669", cursor: completing === task.id ? "not-allowed" : "pointer",
+                              fontWeight: 600, opacity: completing === task.id ? 0.6 : 1,
+                            }}
+                          >
+                            {completing === task.id ? "…" : "Mark Complete"}
+                          </button>
+                          <button
+                            onClick={() => setOpenTask(task)}
+                            style={{
+                              fontSize: 10, padding: "2px 8px", borderRadius: 5,
+                              border: "1px solid #e5e7eb", background: "#f9fafb",
+                              color: "#6b7280", cursor: "pointer", fontWeight: 600,
+                            }}
+                          >
+                            Open
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}
@@ -536,21 +696,22 @@ function TaskTimeline({
         );
       })}
     </div>
+    </>
   );
 }
 
 function CaseSummaryCard({
-  caseDetail, caseNumber, onResolve, onDispute,
+  caseDetail, caseNumber, onResolve,
 }: {
   caseDetail: CaseDetail;
   caseNumber: string;
   onResolve: () => void;
-  onDispute: () => void;
 }) {
   const ts = caseDetail.task_summary;
-  const autoTasks = caseDetail.tasks.filter((t) => t.task_type === "auto" && t.status === "completed");
-  const humanPending = caseDetail.tasks.filter((t) => t.task_type === "human" && t.status === "pending").length;
-  const scheduledPending = caseDetail.tasks.filter((t) => t.task_type === "scheduled" && t.status === "pending").length;
+  const humanTasks = caseDetail.tasks.filter((t) => t.task_type === "human");
+  const humanPending = humanTasks.filter((t) => t.status === "pending" || t.status === "overdue").length;
+  const allHumanDone = humanTasks.length > 0 && humanPending === 0;
+  const scheduledPending = 0; // no scheduled tasks
 
   return (
     <div style={{
@@ -618,64 +779,41 @@ function CaseSummaryCard({
         </div>
       </div>
 
-      {autoTasks.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <p style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, margin: "0 0 6px" }}>
-            Actions Taken by System:
-          </p>
-          {autoTasks.map((t) => (
-            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-              <CheckCircle2 style={{ width: 12, height: 12, color: "#059669", flexShrink: 0 }} />
-              <span style={{ fontSize: 11, color: "#374151" }}>{t.description}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {(humanPending > 0 || scheduledPending > 0) && (
+      {humanPending > 0 && (
         <div style={{ marginBottom: 16 }}>
           <p style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, margin: "0 0 6px" }}>Awaiting:</p>
-          {humanPending > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-              <Circle style={{ width: 12, height: 12, color: "#f59e0b" }} />
-              <span style={{ fontSize: 11, color: "#374151" }}>
-                {humanPending} task{humanPending > 1 ? "s" : ""} assigned to {caseDetail.assigned_team}
-              </span>
-            </div>
-          )}
-          {scheduledPending > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Clock style={{ width: 12, height: 12, color: "#9ca3af" }} />
-              <span style={{ fontSize: 11, color: "#374151" }}>
-                {scheduledPending} task{scheduledPending > 1 ? "s" : ""} scheduled for future dates
-              </span>
-            </div>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+            <Circle style={{ width: 12, height: 12, color: "#f59e0b" }} />
+            <span style={{ fontSize: 11, color: "#374151" }}>
+              {humanPending} task{humanPending > 1 ? "s" : ""} assigned to {caseDetail.assigned_team}
+            </span>
+          </div>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8 }}>
+      {/* Resolve button — shown when all human tasks are done and case is in_progress */}
+      {caseDetail.status === "in_progress" && allHumanDone && (
         <button
           onClick={onResolve}
           style={{
-            flex: 1, padding: "7px 12px", borderRadius: 8,
+            width: "100%", padding: "8px 12px", borderRadius: 8,
             border: "1px solid #059669", background: "#f0fdf4",
             color: "#059669", fontSize: 12, fontWeight: 600, cursor: "pointer",
           }}
         >
-          Resolve Case
+          ✓ Resolve Case
         </button>
-        <button
-          onClick={onDispute}
-          style={{
-            flex: 1, padding: "7px 12px", borderRadius: 8,
-            border: "1px solid #e5e7eb", background: "#fff",
-            color: "#374151", fontSize: 12, fontWeight: 600, cursor: "pointer",
-          }}
-        >
-          Dispute Resolution
-        </button>
-      </div>
+      )}
+      {(caseDetail.status === "awaiting_response" || caseDetail.status === "awaiting_confirmation") && (
+        <div style={{ padding: "8px 12px", borderRadius: 8, background: "#fffbeb", border: "1px solid #fde68a", textAlign: "center" }}>
+          <span style={{ fontSize: 12, color: "#d97706", fontWeight: 600 }}>⏳ Waiting for consumer response…</span>
+        </div>
+      )}
+      {caseDetail.status === "closed" && (
+        <div style={{ padding: "8px 12px", borderRadius: 8, background: "#f0fdf4", border: "1px solid #bbf7d0", textAlign: "center" }}>
+          <span style={{ fontSize: 12, color: "#059669", fontWeight: 600 }}>✓ Case Closed</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -763,24 +901,22 @@ function CaseLifecyclePipeline({ stats }: { stats: CaseStats | null }) {
   );
 }
 
-function ResolutionActivity({ caseStats, dayStats }: { caseStats: CaseStats | null; dayStats: DayStats | null }) {
-  const totalCases = caseStats?.total || 0;
-  const ackSent = totalCases;
-  const teamAlerts = totalCases;
-  const escalations = dayStats?.slack_alerts_sent || 0;
-  const emails = dayStats?.emails_sent || 0;
-  const surveys = caseStats?.satisfaction?.total_responses || 0;
+function ResolutionActivity({ caseStats, dayStats, emails: sentEmails }: { caseStats: CaseStats | null; dayStats: DayStats | null; emails: SentEmail[] }) {
+  const ackSent = sentEmails.filter((e) => e.email_type === "acknowledgment").length;
+  const resolutionSent = sentEmails.filter((e) => e.email_type === "resolution").length;
+  const teamAlerts = dayStats?.slack_alerts_sent || 0;
   const overdueTasks = caseStats?.overdue_tasks || 0;
+  const closedCases = caseStats?.by_status?.closed || 0;
+  const totalHumanTasks = caseStats?.total ? Math.round((caseStats.total * (caseStats.avg_tasks_per_case || 0))) : 0;
 
   const rows = [
-    { icon: <CheckCircle2 style={{ width: 14, height: 14, color: "#059669" }} />, count: ackSent, label: "Acknowledgments sent" },
-    { icon: <Bell style={{ width: 14, height: 14, color: "#2563eb" }} />, count: teamAlerts, label: "Team alerts dispatched" },
-    { icon: <AlertTriangle style={{ width: 14, height: 14, color: "#d97706" }} />, count: escalations, label: "Escalation alerts sent" },
-    { icon: <Mail style={{ width: 14, height: 14, color: "#6b7280" }} />, count: emails, label: "Follow-up emails sent" },
-    { icon: <MessageSquare style={{ width: 14, height: 14, color: "#0ea5e9" }} />, count: surveys, label: "Satisfaction surveys sent" },
+    { icon: <Mail style={{ width: 14, height: 14, color: "#2563eb" }} />, count: ackSent, label: "Acknowledgment emails sent" },
+    { icon: <Bell style={{ width: 14, height: 14, color: "#2563eb" }} />, count: teamAlerts, label: "Team Slack alerts dispatched" },
+    { icon: <CheckCircle2 style={{ width: 14, height: 14, color: "#059669" }} />, count: resolutionSent, label: "Resolution emails sent" },
+    { icon: <Clock style={{ width: 14, height: 14, color: "#7c3aed" }} />, count: totalHumanTasks, label: "Tasks assigned to teams" },
     { icon: <FileText style={{ width: 14, height: 14, color: "#6b7280" }} />, count: 1, label: "Daily reports generated" },
-    { icon: <Clock style={{ width: 14, height: 14, color: "#7c3aed" }} />, count: dayStats?.total_processed || 0, label: "Tasks assigned to teams" },
-    { icon: <AlertCircle style={{ width: 14, height: 14, color: "#dc2626" }} />, count: overdueTasks, label: "Overdue tasks escalated" },
+    { icon: <XCircle style={{ width: 14, height: 14, color: "#6b7280" }} />, count: closedCases, label: "Cases auto-closed" },
+    { icon: <AlertCircle style={{ width: 14, height: 14, color: "#dc2626" }} />, count: overdueTasks, label: "Overdue tasks" },
   ];
 
   return (
@@ -819,9 +955,9 @@ function SatisfactionPanel({ stats }: { stats: SatisfactionStats | null }) {
       <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: "0 0 14px" }}>
         Customer Satisfaction
       </h2>
-      {!stats || stats.total_sent === 0 ? (
+      {!stats || stats.total_responded === 0 ? (
         <p style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>
-          No satisfaction responses yet. Surveys are automatically sent when cases reach the confirmation stage.
+          No ratings yet. Consumers rate their experience via the link in the resolution email.
         </p>
       ) : (
         <div>
@@ -855,6 +991,326 @@ function SatisfactionPanel({ stats }: { stats: SatisfactionStats | null }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Email Outbox Panel ──────────────────────────────────────────────────────
+
+const EMAIL_TYPE_LABELS: Record<string, string> = {
+  acknowledgment: "Acknowledgment",
+  resolution: "Resolution + Survey",
+};
+
+const EMAIL_TYPE_COLORS: Record<string, string> = {
+  acknowledgment: "#2563eb",
+  resolution: "#059669",
+};
+
+function EmailOutboxPanel({ emails }: { emails: SentEmail[] }) {
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
+      padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <Inbox style={{ width: 15, height: 15, color: "#6b7280" }} />
+        <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>Email Outbox</h2>
+      </div>
+      <p style={{ fontSize: 11, color: "#9ca3af", margin: "0 0 12px" }}>
+        {emails.length} emails sent · auto-refresh 30s
+      </p>
+      {emails.length === 0 ? (
+        <p style={{ fontSize: 12, color: "#9ca3af", textAlign: "center", padding: "12px 0" }}>
+          No emails sent yet. Emails are sent automatically when cases are created.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto" }}>
+          {emails.slice(0, 15).map((e) => {
+            const color = EMAIL_TYPE_COLORS[e.email_type] || "#6b7280";
+            const label = EMAIL_TYPE_LABELS[e.email_type] || e.email_type;
+            return (
+              <div key={e.id} style={{
+                display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 10px",
+                borderRadius: 8, background: "#f9fafb", border: "1px solid #e5e7eb",
+                borderLeft: `3px solid ${color}`,
+              }}>
+                <Mail style={{ width: 13, height: 13, color, flexShrink: 0, marginTop: 2 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}>
+                    <span style={{
+                      fontSize: 10, padding: "1px 6px", borderRadius: 4,
+                      background: color + "18", color, fontWeight: 600,
+                    }}>
+                      {label}
+                    </span>
+                    <span style={{ fontSize: 10, color: "#9ca3af", flexShrink: 0 }}>
+                      {relativeTime(e.sent_at)}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 11, color: "#374151", margin: "3px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {e.to_address}
+                  </p>
+                  {e.case_number && (
+                    <p style={{ fontSize: 10, color: "#9ca3af", margin: "1px 0 0" }}>
+                      {e.case_number}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Live Activity Chart ─────────────────────────────────────────────────────
+
+function LiveActivityChart({ activities }: { activities: ActivityEntry[] }) {
+  // Build cumulative complaint count for last 60 minutes in 5-minute buckets
+  const now = Date.now();
+  const buckets: ChartPoint[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const t = new Date(now - i * 5 * 60 * 1000);
+    const label = t.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    const count = activities.filter((a) => {
+      const ts = new Date(a.timestamp.endsWith("Z") ? a.timestamp : a.timestamp + "Z").getTime();
+      return ts >= now - (i + 1) * 5 * 60 * 1000 && ts < now - i * 5 * 60 * 1000;
+    }).length;
+    buckets.push({ time: label, count });
+  }
+
+  // Make it cumulative
+  let running = 0;
+  const data = buckets.map((b) => { running += b.count; return { ...b, count: running }; });
+
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
+      padding: "16px 20px", marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>
+          Live Activity — Last 60 Minutes
+        </h2>
+        <span style={{ fontSize: 11, color: "#9ca3af" }}>{activities.length} events</span>
+      </div>
+      <ResponsiveContainer width="100%" height={100}>
+        <LineChart data={data} margin={{ top: 2, right: 8, left: -24, bottom: 2 }}>
+          <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#9ca3af" }} interval={2} />
+          <YAxis tick={{ fontSize: 10, fill: "#9ca3af" }} allowDecimals={false} />
+          <Tooltip
+            contentStyle={{ fontSize: 11, borderRadius: 6, border: "1px solid #e5e7eb" }}
+            labelStyle={{ color: "#374151" }}
+          />
+          <Line
+            type="monotone" dataKey="count" stroke="#6366f1"
+            strokeWidth={2} dot={false} activeDot={{ r: 4 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── Kanban Board ────────────────────────────────────────────────────────────
+
+const KANBAN_COLUMNS = [
+  { key: "open",              label: "Open",              cfg: STATUS_CONFIG.open },
+  { key: "in_progress",       label: "In Progress",       cfg: STATUS_CONFIG.in_progress },
+  { key: "action_taken",      label: "Action Taken",      cfg: STATUS_CONFIG.action_taken },
+  { key: "awaiting_response", label: "Awaiting Response", cfg: STATUS_CONFIG.awaiting_response },
+  { key: "closed",            label: "Closed",            cfg: STATUS_CONFIG.closed },
+];
+
+// Map legacy/extra statuses into the 5 canonical columns for display
+function kanbanColumn(status: string): string {
+  if (status === "awaiting_confirmation") return "awaiting_response";
+  if (status === "escalated") return "open"; // escalated shows in OPEN with badge
+  return status;
+}
+
+function KanbanCard({
+  c, onClick, onStart,
+}: {
+  c: CaseSummary;
+  onClick: () => void;
+  onStart?: (e: React.MouseEvent) => void;
+}) {
+  const isEscalated = c.status === "escalated" || (c as any).quality_flag === "fail" || (c.risk_gap || 0) > 0.3;
+  const isDisputed  = c.case_number?.endsWith("-D");
+
+  // Only show badge for ESCALATED or DISPUTED
+  const showBadge = isDisputed || isEscalated;
+  const badgeLabel = isDisputed ? "DISPUTED" : "ESCALATED";
+  const badgeColor = isDisputed ? "#7c3aed" : "#dc2626";
+  const leftBorderColor = isDisputed ? "#7c3aed" : isEscalated ? "#dc2626" : "#e5e7eb";
+
+  const col = kanbanColumn(c.status);
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: "#fff",
+        border: "1px solid #e5e7eb",
+        borderLeft: `3px solid ${leftBorderColor}`,
+        borderRadius: 8,
+        padding: "10px 12px",
+        cursor: "pointer",
+        boxShadow: isEscalated ? "0 0 0 1px #fecaca" : "0 1px 3px rgba(0,0,0,0.04)",
+        transition: "box-shadow 0.15s",
+        width: "100%",
+        boxSizing: "border-box" as const,
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.10)")}
+      onMouseLeave={(e) => (e.currentTarget.style.boxShadow = isEscalated ? "0 0 0 1px #fecaca" : "0 1px 3px rgba(0,0,0,0.04)")}
+    >
+      {/* Row 1: badge (if escalated/disputed) + case# + priority */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          {showBadge && (
+            <span style={{
+              fontSize: 9, padding: "1px 5px", borderRadius: 3, fontWeight: 700,
+              background: badgeColor + "18", color: badgeColor, letterSpacing: "0.04em",
+            }}>{badgeLabel}</span>
+          )}
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#2563eb" }}>{c.case_number}</span>
+        </div>
+        <span style={{
+          fontSize: 9, padding: "1px 5px", borderRadius: 3, fontWeight: 700,
+          color: priorityColor(c.priority), background: priorityColor(c.priority) + "18",
+        }}>{c.priority || "P3"}</span>
+      </div>
+
+      {/* Row 2: product — issue */}
+      <p style={{
+        fontSize: 12, fontWeight: 600, color: "#111827", margin: "0 0 2px",
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>
+        {c.product || "Unknown"}{c.issue ? ` — ${c.issue}` : ""}
+      </p>
+
+      {/* Row 3: company */}
+      {c.company && (
+        <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {c.company}
+        </p>
+      )}
+
+      {/* Row 4: severity + team */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        <span style={{
+          fontSize: 10, padding: "1px 6px", borderRadius: 3, fontWeight: 600,
+          background: c.severity === "critical" ? "#fee2e2" : c.severity === "high" ? "#fef3c7" : c.severity === "medium" ? "#dbeafe" : "#f3f4f6",
+          color: c.severity === "critical" ? "#dc2626" : c.severity === "high" ? "#d97706" : c.severity === "medium" ? "#2563eb" : "#6b7280",
+        }}>{(c.severity || "low").toUpperCase()}</span>
+        <span style={{
+          fontSize: 10, color: teamColor(c.assigned_team),
+          background: teamColor(c.assigned_team) + "18",
+          padding: "1px 6px", borderRadius: 3, fontWeight: 500,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 120,
+        }}>{c.assigned_team?.replace(/_/g, " ") || "—"}</span>
+      </div>
+
+      {/* Row 5: confidence */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontSize: 10, color: "#6b7280" }}>
+          Confidence: <strong style={{ color: "#059669" }}>{Math.round((c.overall_confidence || 0) * 100)}%</strong>
+        </span>
+        <span style={{ fontSize: 10, color: "#9ca3af" }}>{relativeTime(c.created_at)}</span>
+      </div>
+
+      {/* Row 6: action button (status-appropriate) */}
+      {col === "open" && onStart && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onStart(e); }}
+          style={{
+            width: "100%", padding: "5px 0", marginTop: 2, borderRadius: 6,
+            border: "1px solid #2563eb", background: "#eff6ff",
+            color: "#2563eb", fontSize: 11, fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          Start Working →
+        </button>
+      )}
+      {col === "awaiting_response" && (
+        <div style={{
+          width: "100%", padding: "4px 0", marginTop: 2, borderRadius: 6,
+          border: "1px solid #fde68a", background: "#fffbeb",
+          color: "#d97706", fontSize: 11, fontWeight: 600, textAlign: "center",
+        }}>
+          Awaiting response — click to resolve
+        </div>
+      )}
+      {col === "closed" && (
+        <div style={{
+          width: "100%", padding: "4px 0", marginTop: 2, borderRadius: 6,
+          background: "#f0fdf4", color: "#059669", fontSize: 11, fontWeight: 600, textAlign: "center",
+          border: "1px solid #bbf7d0",
+        }}>
+          ✓ Resolved
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KanbanBoard({
+  cases, onSelectCase, onStartCase,
+}: {
+  cases: CaseSummary[];
+  onSelectCase: (caseNumber: string) => void;
+  onStartCase: (caseNumber: string) => void;
+}) {
+  // Group cases into 5 canonical columns (escalated → open, awaiting_confirmation → awaiting_response)
+  const byStatus = KANBAN_COLUMNS.reduce<Record<string, CaseSummary[]>>((acc, col) => {
+    acc[col.key] = cases.filter((c) => kanbanColumn(c.status) === col.key);
+    return acc;
+  }, {});
+
+  return (
+    <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 8, alignItems: "flex-start" }}>
+      {KANBAN_COLUMNS.map((col) => {
+        const cards = byStatus[col.key] || [];
+        return (
+          <div key={col.key} style={{
+            minWidth: 240, flex: "0 0 240px",
+            background: col.cfg.bg, borderRadius: 10,
+            border: `1px solid ${col.cfg.border}`,
+            padding: "10px 8px",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: col.cfg.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                {col.label}
+              </span>
+              <span style={{
+                fontSize: 11, fontWeight: 700, color: col.cfg.color,
+                background: "#fff", padding: "1px 7px", borderRadius: 10,
+                border: `1px solid ${col.cfg.border}`,
+              }}>
+                {cards.length}
+              </span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 520, overflowY: "auto" }}>
+              {cards.length === 0 ? (
+                <p style={{ fontSize: 11, color: "#9ca3af", textAlign: "center", padding: "16px 0", fontStyle: "italic" }}>
+                  empty
+                </p>
+              ) : cards.map((c) => (
+                <KanbanCard
+                  key={c.id}
+                  c={c}
+                  onClick={() => onSelectCase(c.case_number)}
+                  onStart={col.key === "open" ? () => onStartCase(c.case_number) : undefined}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -929,12 +1385,13 @@ export default function MonitorPage() {
   const [caseStats, setCaseStats] = useState<CaseStats | null>(null);
   const [satisfaction, setSatisfaction] = useState<SatisfactionStats | null>(null);
   const [dayStats, setDayStats] = useState<DayStats | null>(null);
+  const [emails, setEmails] = useState<SentEmail[]>([]);
   const [expandedCase, setExpandedCase] = useState<string | null>(null);
   const [caseDetail, setCaseDetail] = useState<CaseDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [polling, setPolling] = useState(false);
   const [simulating, setSimulating] = useState(false);
-  const [starting, setStarting] = useState(false);
+  const [caseView, setCaseView] = useState<"table" | "kanban">("table");
   const [error, setError] = useState<string | null>(null);
   const [activityPage, setActivityPage] = useState(0);
   const [casePage, setCasePage] = useState(0);
@@ -990,6 +1447,14 @@ export default function MonitorPage() {
     } catch {}
   }, []);
 
+  const fetchEmails = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/monitor/emails?limit=50`);
+      if (r.ok) setEmails((await r.json()).emails || []);
+    } catch {}
+  }, []);
+
+
   const fetchCaseDetail = useCallback(async (caseNumber: string) => {
     setLoadingDetail(true);
     try {
@@ -1005,14 +1470,16 @@ export default function MonitorPage() {
   useEffect(() => {
     fetchStatus(); fetchActivity(); fetchPatterns();
     fetchCases(); fetchCaseStats(); fetchSatisfaction(); fetchStats();
+    fetchEmails();
 
     const fast = setInterval(() => { fetchStatus(); fetchActivity(); }, 10_000);
     const slow = setInterval(() => {
-      fetchPatterns(); fetchCases(); fetchCaseStats(); fetchSatisfaction(); fetchStats();
+      fetchPatterns(); fetchCases(); fetchCaseStats(); fetchSatisfaction();
+      fetchStats(); fetchEmails();
     }, 30_000);
 
     return () => { clearInterval(fast); clearInterval(slow); };
-  }, [fetchStatus, fetchActivity, fetchPatterns, fetchCases, fetchCaseStats, fetchSatisfaction, fetchStats]);
+  }, [fetchStatus, fetchActivity, fetchPatterns, fetchCases, fetchCaseStats, fetchSatisfaction, fetchStats, fetchEmails]);
 
   // Load case detail when expanding
   useEffect(() => {
@@ -1021,24 +1488,6 @@ export default function MonitorPage() {
   }, [expandedCase, fetchCaseDetail]);
 
   // ── actions ─────────────────────────────────────
-
-  async function handleStartStop() {
-    if (!status) return;
-    setStarting(true);
-    try {
-      if (status.monitoring_active) {
-        await fetch(`${API}/monitor/stop`, { method: "POST" });
-      } else {
-        await fetch(`${API}/monitor/start`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ interval_minutes: 30 }),
-        });
-      }
-      await fetchStatus();
-    } catch { setError("Failed to toggle monitoring"); }
-    finally { setStarting(false); }
-  }
 
   async function handlePollNow() {
     setPolling(true);
@@ -1071,16 +1520,18 @@ export default function MonitorPage() {
     setPatterns((p) => p.filter((x) => x.id !== id));
   }
 
+  async function handleStartCase(caseNumber: string) {
+    await fetch(`${API}/cases/${caseNumber}/start`, { method: "POST" });
+    setTimeout(() => { fetchCases(); fetchCaseStats(); fetchActivity(); }, 300);
+  }
+
   async function handleResolveCase() {
     if (!expandedCase) return;
     await fetch(`${API}/cases/${expandedCase}/resolve`, { method: "POST" });
-    fetchCases(); fetchCaseStats(); fetchCaseDetail(expandedCase);
-  }
-
-  async function handleDisputeCase() {
-    if (!expandedCase) return;
-    await fetch(`${API}/cases/${expandedCase}/dispute`, { method: "POST" });
-    fetchCases(); fetchCaseStats(); fetchCaseDetail(expandedCase);
+    setTimeout(() => {
+      fetchCases(); fetchCaseStats(); fetchCaseDetail(expandedCase);
+      fetchEmails(); fetchSatisfaction(); fetchActivity();
+    }, 500);
   }
 
   function handleDownloadReport() {
@@ -1118,20 +1569,18 @@ export default function MonitorPage() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          {/* Status indicator */}
+          {/* Status indicator — always active */}
           <div style={{
             display: "flex", alignItems: "center", gap: 6, padding: "6px 14px",
             borderRadius: 20, border: "1px solid #e5e7eb", background: "#fff", fontSize: 13,
           }}>
             <span style={{
               width: 8, height: 8, borderRadius: "50%",
-              background: status?.monitoring_active ? "#10b981" : "#ef4444",
+              background: "#10b981",
               display: "inline-block",
-              animation: status?.monitoring_active ? "pulse 2s infinite" : "none",
+              animation: "pulse 2s infinite",
             }} />
-            <span style={{ fontWeight: 600, color: status?.monitoring_active ? "#059669" : "#dc2626" }}>
-              {status?.monitoring_active ? "Active" : "Paused"}
-            </span>
+            <span style={{ fontWeight: 600, color: "#059669" }}>Active</span>
           </div>
 
           {status?.last_poll_time && (
@@ -1139,20 +1588,6 @@ export default function MonitorPage() {
               Last: {relativeTime(status.last_poll_time)}
             </span>
           )}
-
-          <button
-            onClick={handleStartStop} disabled={starting}
-            style={{
-              padding: "7px 16px", borderRadius: 8,
-              border: `1px solid ${status?.monitoring_active ? "#dc2626" : "#059669"}`,
-              background: status?.monitoring_active ? "#fff1f1" : "#f0fdf4",
-              color: status?.monitoring_active ? "#dc2626" : "#059669",
-              fontSize: 13, fontWeight: 600,
-              cursor: starting ? "not-allowed" : "pointer", opacity: starting ? 0.7 : 1,
-            }}
-          >
-            {starting ? "…" : status?.monitoring_active ? "Stop Monitoring" : "Start Monitoring"}
-          </button>
 
           <button
             onClick={handlePollNow} disabled={polling}
@@ -1193,7 +1628,7 @@ export default function MonitorPage() {
             }}
           >
             <FileDown style={{ width: 13, height: 13, color: "#6b7280" }} />
-            Download Report
+            Report
           </button>
         </div>
       </div>
@@ -1225,15 +1660,9 @@ export default function MonitorPage() {
             No complaints processed yet
           </h2>
           <p style={{ fontSize: 14, color: "#6b7280", maxWidth: 400, margin: "0 auto 20px" }}>
-            Start monitoring to begin autonomous processing, or click <strong>Simulate</strong> to process sample complaints.
+            Click <strong>Simulate</strong> to process sample complaints through the AI pipeline.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-            <button onClick={handleStartStop} style={{
-              padding: "8px 20px", borderRadius: 8, border: "1px solid #059669",
-              background: "#f0fdf4", color: "#059669", fontSize: 14, fontWeight: 600, cursor: "pointer",
-            }}>
-              Start Monitoring
-            </button>
             <button onClick={handleSimulate} disabled={simulating} style={{
               padding: "8px 20px", borderRadius: 8, border: "1px dashed #6366f1",
               background: "#fafafa", color: "#6366f1", fontSize: 14, fontWeight: 600, cursor: "pointer",
@@ -1251,196 +1680,72 @@ export default function MonitorPage() {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
         <StatCard label="Total Processed" value={stats?.total_processed ?? 0} sub={`+${dayStats?.total_processed ?? 0} today`} />
         <StatCard label="Auto-Processed" value={`${autoRate}%`} sub={`${stats?.total_auto_processed ?? 0} of ${stats?.total_processed ?? 0}`} accent="#059669" />
-        <StatCard label="Escalated" value={stats?.total_escalated ?? 0} sub="high-risk complaints" accent={(stats?.total_escalated ?? 0) > 0 ? "#dc2626" : undefined} />
-        <StatCard label="Patterns Detected" value={patterns.length} sub="active patterns" accent={patterns.length > 0 ? "#d97706" : undefined} />
-        <StatCard label="Open Cases" value={caseStats?.by_status?.open ?? 0} sub={`${caseStats?.total ?? 0} total cases`} />
+        <StatCard label="Open Cases" value={(caseStats?.by_status?.open ?? 0) + (caseStats?.by_status?.in_progress ?? 0) + (caseStats?.by_status?.action_taken ?? 0) + (caseStats?.by_status?.awaiting_response ?? 0) + (caseStats?.by_status?.awaiting_confirmation ?? 0)} sub={`${caseStats?.total ?? 0} total cases`} />
+        <StatCard label="Closed Cases" value={caseStats?.by_status?.closed ?? 0} sub={`${caseStats?.auto_processed_pct ?? 0}% auto-resolved`} accent="#059669" />
         <StatCard label="Overdue Tasks" value={caseStats?.overdue_tasks ?? 0} sub="requiring attention" accent={(caseStats?.overdue_tasks ?? 0) > 0 ? "#dc2626" : undefined} />
       </div>
 
-      {/* ── Case Lifecycle Pipeline ───────────────── */}
-      <CaseLifecyclePipeline stats={caseStats} />
-
-      {/* ── Two-column layout ─────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(0, 2fr)", gap: 16, marginBottom: 24 }}>
-
-        {/* ── Activity Feed ───────────────────────── */}
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-          <div style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>System Activity</h2>
-            <span style={{ fontSize: 11, color: "#9ca3af" }}>auto-refresh every 10s</span>
-          </div>
-          <div style={{ maxHeight: 480, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-            {pagedActivity.length === 0 ? (
-              <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 13, padding: "32px 0" }}>
-                No activity yet. Start monitoring or simulate complaints.
-              </p>
-            ) : pagedActivity.map((entry) => <ActivityItem key={entry.id} entry={entry} />)}
-          </div>
-          {activities.length > ITEMS_PER_PAGE && (
-            <div style={{ padding: "10px 16px", borderTop: "1px solid #f3f4f6", display: "flex", gap: 8, justifyContent: "center" }}>
-              <button disabled={activityPage === 0} onClick={() => setActivityPage((p) => p - 1)}
-                style={{ padding: "4px 12px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 6, cursor: activityPage === 0 ? "not-allowed" : "pointer", background: "#fff", color: "#374151", opacity: activityPage === 0 ? 0.4 : 1 }}>
-                ← Newer
-              </button>
-              <span style={{ fontSize: 12, color: "#6b7280", alignSelf: "center" }}>
-                {activityPage + 1} / {Math.ceil(activities.length / ITEMS_PER_PAGE)}
-              </span>
-              <button disabled={(activityPage + 1) * ITEMS_PER_PAGE >= activities.length}
-                onClick={() => setActivityPage((p) => p + 1)}
-                style={{ padding: "4px 12px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 6, cursor: (activityPage + 1) * ITEMS_PER_PAGE >= activities.length ? "not-allowed" : "pointer", background: "#fff", color: "#374151", opacity: (activityPage + 1) * ITEMS_PER_PAGE >= activities.length ? 0.4 : 1 }}>
-                Older →
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* ── Right column ──────────────────────────── */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Patterns */}
-          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-            <div style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6" }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>Detected Patterns</h2>
-            </div>
-            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-              {patterns.length === 0 ? (
-                <p style={{ fontSize: 13, color: "#9ca3af", textAlign: "center", padding: "20px 0" }}>
-                  No active patterns — monitoring for complaint clusters and volume spikes.
-                </p>
-              ) : patterns.map((p) => (
-                <PatternCard key={p.id} pattern={p} onResolve={handleResolvePattern} />
-              ))}
-            </div>
-          </div>
-
-          {/* Last 24h stats */}
-          {dayStats && (
-            <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-              <div style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>Last 24 Hours</h2>
-              </div>
-              <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 16 }}>
-                {Object.keys(dayStats.by_severity).length > 0 && (
-                  <div>
-                    <p style={{ fontSize: 12, color: "#6b7280", fontWeight: 500, margin: "0 0 8px" }}>By Severity</p>
-                    <MiniBarChart data={dayStats.by_severity} colorFn={(k) => k === "critical" ? "#dc2626" : k === "high" ? "#d97706" : k === "medium" ? "#2563eb" : "#10b981"} />
-                  </div>
-                )}
-                {Object.keys(dayStats.by_team).length > 0 && (
-                  <div>
-                    <p style={{ fontSize: 12, color: "#6b7280", fontWeight: 500, margin: "0 0 8px" }}>By Team</p>
-                    <MiniBarChart data={dayStats.by_team} colorFn={teamColor} />
-                  </div>
-                )}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <div style={{ padding: "8px 10px", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
-                    <p style={{ fontSize: 10, color: "#6b7280", margin: 0 }}>Avg Confidence</p>
-                    <p style={{ fontSize: 18, fontWeight: 700, color: "#059669", margin: "2px 0 0" }}>{pct(dayStats.avg_confidence)}</p>
-                  </div>
-                  <div style={{ padding: "8px 10px", background: "#fff7f7", borderRadius: 8, border: "1px solid #fecaca" }}>
-                    <p style={{ fontSize: 10, color: "#6b7280", margin: 0 }}>Avg Risk Gap</p>
-                    <p style={{ fontSize: 18, fontWeight: 700, color: "#dc2626", margin: "2px 0 0" }}>{pct(dayStats.avg_risk_gap)}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Resolution Activity */}
-          <ResolutionActivity caseStats={caseStats} dayStats={dayStats} />
-
-          {/* Customer Satisfaction */}
-          <SatisfactionPanel stats={satisfaction} />
-        </div>
-      </div>
-
-      {/* ── Cases Table ───────────────────────────── */}
-      <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+      {/* ── KANBAN BOARD (centerpiece) ────────────── */}
+      <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", marginBottom: 24 }}>
         <div style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>Cases</h2>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: "#6b7280" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <Bot style={{ width: 12, height: 12 }} /> auto
-              </span>
-              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <User style={{ width: 12, height: 12 }} /> manual
-              </span>
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <KanbanSquare style={{ width: 16, height: 16, color: "#6b7280" }} />
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>Case Board</h2>
             <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#f3f4f6", color: "#6b7280" }}>
-              {cases.length} total
+              {cases.length} cases
             </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#6b7280" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}><Bot style={{ width: 11, height: 11, color: "#059669" }} /> auto</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}><User style={{ width: 11, height: 11, color: "#d97706" }} /> review</span>
+            </div>
+            <span style={{ fontSize: 11, color: "#9ca3af" }}>auto-refresh 30s</span>
+            {/* Table view toggle */}
+            <button
+              onClick={() => setCaseView(caseView === "table" ? "kanban" : "table")}
+              style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", fontSize: 11, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff", color: "#6b7280", cursor: "pointer" }}
+            >
+              {caseView === "kanban" ? <><Table2 style={{ width: 12, height: 12 }} /> Table</> : <><KanbanSquare style={{ width: 12, height: 12 }} /> Board</>}
+            </button>
           </div>
         </div>
 
         {cases.length === 0 ? (
           <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 13, padding: "40px 0" }}>
-            No cases yet. Simulate complaints to create cases.
+            No cases yet — simulate complaints to create cases.
           </p>
+        ) : caseView === "kanban" ? (
+          <div style={{ padding: 16 }}>
+            <KanbanBoard
+              cases={cases}
+              onSelectCase={(caseNumber) => setExpandedCase(expandedCase === caseNumber ? null : caseNumber)}
+              onStartCase={handleStartCase}
+            />
+          </div>
         ) : (
-          <>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ background: "#f9fafb" }}>
-                    {["Time", "Src", "Case #", "Narrative", "Product", "Severity", "Team", "Priority", "Status"].map((h) => (
-                      <th key={h} style={{ padding: "10px 8px", fontSize: 11, fontWeight: 600, color: "#6b7280", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedCases.map((c) => (
-                    <CaseRow
-                      key={c.id}
-                      c={c}
-                      isExpanded={expandedCase === c.case_number}
-                      onClick={() => setExpandedCase(expandedCase === c.case_number ? null : c.case_number)}
-                    />
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#f9fafb" }}>
+                  {["Time", "Src", "Case #", "Narrative", "Product", "Severity", "Team", "Priority", "Status"].map((h) => (
+                    <th key={h} style={{ padding: "10px 8px", fontSize: 11, fontWeight: 600, color: "#6b7280", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
+                      {h}
+                    </th>
                   ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Expanded case detail */}
-            {expandedCase && (
-              <div style={{ padding: 20, background: "#f8fafc", borderTop: "1px solid #e5e7eb" }}>
-                {loadingDetail ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", padding: "24px 0" }}>
-                    <Loader2 style={{ width: 18, height: 18, color: "#6b7280" }} className="animate-spin" />
-                    <span style={{ fontSize: 13, color: "#6b7280" }}>Loading case details…</span>
-                  </div>
-                ) : caseDetail ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 24 }}>
-                    {/* Left: Task Timeline */}
-                    <div>
-                      <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 16px" }}>
-                        Task Timeline
-                      </h3>
-                      <TaskTimeline
-                        caseNumber={expandedCase}
-                        tasks={caseDetail.tasks}
-                        onTaskComplete={() => {}}
-                        onRefresh={() => fetchCaseDetail(expandedCase)}
-                      />
-                    </div>
-                    {/* Right: Case summary */}
-                    <CaseSummaryCard
-                      caseDetail={caseDetail}
-                      caseNumber={expandedCase}
-                      onResolve={handleResolveCase}
-                      onDispute={handleDisputeCase}
-                    />
-                  </div>
-                ) : (
-                  <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
-                    Could not load case detail.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Pagination */}
+                </tr>
+              </thead>
+              <tbody>
+                {pagedCases.map((c) => (
+                  <CaseRow
+                    key={c.id}
+                    c={c}
+                    isExpanded={expandedCase === c.case_number}
+                    onClick={() => setExpandedCase(expandedCase === c.case_number ? null : c.case_number)}
+                  />
+                ))}
+              </tbody>
+            </table>
             {cases.length > ITEMS_PER_PAGE && (
               <div style={{ padding: "12px 16px", borderTop: "1px solid #f3f4f6", display: "flex", justifyContent: "center", gap: 8 }}>
                 <button disabled={casePage === 0} onClick={() => setCasePage((p) => p - 1)}
@@ -1457,8 +1762,110 @@ export default function MonitorPage() {
                 </button>
               </div>
             )}
-          </>
+          </div>
         )}
+
+        {/* Expanded case detail panel */}
+        {expandedCase && (
+          <div style={{ padding: 20, background: "#f8fafc", borderTop: "1px solid #e5e7eb" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: 0 }}>
+                Case {expandedCase} — Detail View
+              </h3>
+              <button onClick={() => setExpandedCase(null)} style={{ fontSize: 16, color: "#9ca3af", background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            {loadingDetail ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", padding: "24px 0" }}>
+                <Loader2 style={{ width: 18, height: 18, color: "#6b7280" }} className="animate-spin" />
+                <span style={{ fontSize: 13, color: "#6b7280" }}>Loading case details…</span>
+              </div>
+            ) : caseDetail ? (
+              <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 24 }}>
+                <div>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 14px" }}>Task Timeline</h3>
+                  <TaskTimeline
+                    caseNumber={expandedCase}
+                    tasks={caseDetail.tasks}
+                    caseDetail={caseDetail}
+                    onTaskComplete={() => {}}
+                    onRefresh={() => { fetchCaseDetail(expandedCase); fetchCases(); fetchCaseStats(); fetchEmails(); fetchActivity(); }}
+                  />
+                </div>
+                <CaseSummaryCard
+                  caseDetail={caseDetail}
+                  caseNumber={expandedCase}
+                  onResolve={handleResolveCase}
+                />
+              </div>
+            ) : (
+              <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 13 }}>Could not load case detail.</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Bottom: two-column layout ─────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(0, 2fr)", gap: 16, marginBottom: 24 }}>
+
+        {/* ── Left: Activity Feed + Chart ────────── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {activities.length > 0 && <LiveActivityChart activities={activities} />}
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <div style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>System Activity</h2>
+              <span style={{ fontSize: 11, color: "#9ca3af" }}>auto-refresh every 10s</span>
+            </div>
+            <div style={{ maxHeight: 420, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+              {pagedActivity.length === 0 ? (
+                <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 13, padding: "32px 0" }}>
+                  No activity yet. Start monitoring or simulate complaints.
+                </p>
+              ) : pagedActivity.map((entry) => <ActivityItem key={entry.id} entry={entry} />)}
+            </div>
+            {activities.length > ITEMS_PER_PAGE && (
+              <div style={{ padding: "10px 16px", borderTop: "1px solid #f3f4f6", display: "flex", gap: 8, justifyContent: "center" }}>
+                <button disabled={activityPage === 0} onClick={() => setActivityPage((p) => p - 1)}
+                  style={{ padding: "4px 12px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 6, cursor: activityPage === 0 ? "not-allowed" : "pointer", background: "#fff", color: "#374151", opacity: activityPage === 0 ? 0.4 : 1 }}>
+                  ← Newer
+                </button>
+                <span style={{ fontSize: 12, color: "#6b7280", alignSelf: "center" }}>
+                  {activityPage + 1} / {Math.ceil(activities.length / ITEMS_PER_PAGE)}
+                </span>
+                <button disabled={(activityPage + 1) * ITEMS_PER_PAGE >= activities.length}
+                  onClick={() => setActivityPage((p) => p + 1)}
+                  style={{ padding: "4px 12px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 6, cursor: (activityPage + 1) * ITEMS_PER_PAGE >= activities.length ? "not-allowed" : "pointer", background: "#fff", color: "#374151", opacity: (activityPage + 1) * ITEMS_PER_PAGE >= activities.length ? 0.4 : 1 }}>
+                  Older →
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Right: Email Outbox + Resolution + Satisfaction + Patterns ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Email Outbox */}
+          <EmailOutboxPanel emails={emails} />
+
+          {/* Resolution Activity */}
+          <ResolutionActivity caseStats={caseStats} dayStats={dayStats} emails={emails} />
+
+          {/* Customer Satisfaction */}
+          <SatisfactionPanel stats={satisfaction} />
+
+          {/* Complaint Clusters — only show if any exist */}
+          {patterns.filter(p => p.pattern_type === "complaint_cluster").length > 0 && (
+            <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+              <div style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>Complaint Clusters</h2>
+              </div>
+              <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                {patterns.filter(p => p.pattern_type === "complaint_cluster").map((p) => (
+                  <PatternCard key={p.id} pattern={p} onResolve={handleResolvePattern} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── CSS animations ───────────────────────── */}

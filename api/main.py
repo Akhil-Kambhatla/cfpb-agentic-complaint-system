@@ -44,9 +44,8 @@ app.include_router(case_router, prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database and optionally start background monitoring on server start."""
-    from src.data.database import init_db, get_system_state
-    from src.data.database import save_activity
+    """Initialize database and start background monitoring."""
+    from src.data.database import init_db
 
     try:
         init_db()
@@ -54,18 +53,16 @@ async def startup_event():
     except Exception as exc:
         logger.error("Database init failed: %s", exc)
 
-    # Auto-start monitoring if configured
-    auto_start = os.getenv("AUTO_START_MONITORING", "false").lower() == "true"
-    if auto_start:
-        try:
-            from src.data.database import get_system_state
-            state = get_system_state()
-            interval = int(state.get("poll_interval_minutes", os.getenv("CFPB_POLL_INTERVAL_MINUTES", "30")))
-            from src.services.scheduler import start_monitoring
-            start_monitoring(interval)
-            logger.info("Auto-started monitoring with %d-minute interval", interval)
-        except Exception as exc:
-            logger.error("Auto-start monitoring failed: %s", exc)
+    # Always start monitoring on startup
+    try:
+        from src.data.database import get_system_state
+        state = get_system_state()
+        interval = int(state.get("poll_interval_minutes", os.getenv("CFPB_POLL_INTERVAL_MINUTES", "30")))
+        from src.services.scheduler import start_monitoring
+        start_monitoring(interval)
+        logger.info("Monitoring started with %d-minute interval", interval)
+    except Exception as exc:
+        logger.error("Failed to start monitoring: %s", exc)
 
 
 @app.on_event("shutdown")

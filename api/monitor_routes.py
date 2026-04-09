@@ -18,18 +18,10 @@ from src.data.database import (
     resolve_pattern,
     save_activity,
 )
-from src.services.scheduler import get_status, start_monitoring, stop_monitoring, trigger_poll_now
+from src.services.scheduler import get_status, trigger_poll_now
 
 logger = logging.getLogger(__name__)
 monitor_router = APIRouter()
-
-
-# ──────────────────────────────────────────────
-# Request models
-# ──────────────────────────────────────────────
-
-class StartMonitoringRequest(BaseModel):
-    interval_minutes: int = 30
 
 
 # ──────────────────────────────────────────────
@@ -49,7 +41,7 @@ async def monitor_status():
     patterns = get_active_patterns()
 
     return {
-        "monitoring_active": status["running"],
+        "monitoring_active": True,  # System is always active
         "last_poll_time": status["last_poll"],
         "next_poll_time": status["next_poll"],
         "poll_interval_minutes": status["interval"],
@@ -64,21 +56,6 @@ async def monitor_status():
             "total_slack_alerts": stats["slack_alerts_sent"],
         },
     }
-
-
-@monitor_router.post("/monitor/start")
-async def start_monitor(req: StartMonitoringRequest):
-    """Start autonomous monitoring."""
-    interval = max(1, min(req.interval_minutes, 1440))  # clamp 1 min – 1 day
-    start_monitoring(interval)
-    return {"status": "started", "interval_minutes": interval}
-
-
-@monitor_router.post("/monitor/stop")
-async def stop_monitor():
-    """Stop autonomous monitoring."""
-    stop_monitoring()
-    return {"status": "stopped"}
 
 
 @monitor_router.post("/monitor/poll-now")
@@ -302,3 +279,27 @@ async def download_daily_report(date: Optional[str] = Query(default=None)):
         media_type="text/csv",
         filename=p.name,
     )
+
+
+# ──────────────────────────────────────────────
+# Email outbox
+# ──────────────────────────────────────────────
+
+@monitor_router.get("/monitor/emails")
+async def get_sent_emails(limit: int = Query(default=50, ge=1, le=200)):
+    """Return recent sent emails for the Email Outbox panel."""
+    from src.data.database import get_recent_emails
+    emails = get_recent_emails(limit=limit)
+    return {"emails": emails, "total": len(emails)}
+
+
+# ──────────────────────────────────────────────
+# Outcome learning stats
+# ──────────────────────────────────────────────
+
+@monitor_router.get("/monitor/learning")
+async def get_learning_stats():
+    """Return routing outcome learning data."""
+    from src.data.database import get_routing_success_rates
+    rates = get_routing_success_rates()
+    return {"routing_success_rates": rates, "total_pairs": len(rates)}

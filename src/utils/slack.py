@@ -24,6 +24,7 @@ TEAM_WEBHOOK_MAP: dict[str, Optional[str]] = {
 }
 
 # Startup webhook configuration check
+logger.info(f"[SLACK] General webhook: {'configured' if os.getenv('SLACK_WEBHOOK_URL') else 'MISSING'}")
 _TEAM_ENV_VARS = [
     ("compliance", "SLACK_WEBHOOK_COMPLIANCE"),
     ("billing_disputes", "SLACK_WEBHOOK_BILLING_DISPUTES"),
@@ -129,14 +130,18 @@ def send_slack_alert(complaint_summary: dict) -> bool:
         ]
     }
 
-    try:
-        resp = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=5)
-        resp.raise_for_status()
-        logger.info("Slack alert sent successfully")
-        return True
-    except Exception as exc:
-        logger.error(f"Failed to send Slack alert: {exc}")
-        return False
+    for attempt in range(2):
+        try:
+            resp = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=5)
+            resp.raise_for_status()
+            logger.info("Slack alert sent successfully")
+            return True
+        except Exception as exc:
+            if attempt == 0:
+                import time; time.sleep(1)
+            else:
+                logger.error(f"Failed to send Slack alert: {exc}")
+    return False
 
 
 def send_team_routing_alert(complaint_summary: dict, assigned_team: str) -> bool:
@@ -243,12 +248,16 @@ def send_team_routing_alert(complaint_summary: dict, assigned_team: str) -> bool
         ]
     }
 
-    try:
-        resp = requests.post(webhook_url, json=payload, timeout=5)
-        resp.raise_for_status()
-        channel = f"team-{assigned_team.replace('_', '-')}"
-        logger.info(f"Team routing alert sent to #{channel}")
-        return True
-    except Exception as exc:
-        logger.error(f"Failed to send team routing alert to '{assigned_team}': {exc}")
-        return False
+    channel = f"team-{assigned_team.replace('_', '-')}"
+    for attempt in range(2):
+        try:
+            resp = requests.post(webhook_url, json=payload, timeout=5)
+            resp.raise_for_status()
+            logger.info(f"Team routing alert sent to #{channel}")
+            return True
+        except Exception as exc:
+            if attempt == 0:
+                import time; time.sleep(1)
+            else:
+                logger.error(f"Failed to send team routing alert to '{assigned_team}': {exc}")
+    return False

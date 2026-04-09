@@ -1,4 +1,4 @@
-"""Background scheduler for autonomous CFPB monitoring."""
+"""Background scheduler for autonomous CFPB monitoring. Always active, no demo mode."""
 import logging
 import threading
 from datetime import datetime, timedelta
@@ -12,77 +12,57 @@ _scheduler = None
 _scheduler_lock = threading.Lock()
 _start_time: Optional[datetime] = None
 
+# Auto-close awaiting_response cases after 5 minutes (compressed timeline)
+_AUTO_CLOSE_MINUTES = 5
+
+
+def _auto_close_awaiting_cases() -> None:
+    """Close cases in awaiting_response that have been waiting more than 5 minutes."""
+    from src.data.database import _get_conn, save_activity
+
+    cutoff = (datetime.utcnow() - timedelta(minutes=_AUTO_CLOSE_MINUTES)).isoformat()
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT id, case_number FROM cases
+               WHERE status = 'awaiting_response' AND updated_at < ?""",
+            (cutoff,),
+        ).fetchall()
+        if not rows:
+            return
+        for row in rows:
+            case_id = row["id"]
+            case_number = row["case_number"]
+            conn.execute(
+                """UPDATE cases SET status = 'closed', closed_at = CURRENT_TIMESTAMP,
+                   updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+                (case_id,),
+            )
+            logger.info("[SCHEDULER] Case %s auto-closed. No dispute received.", case_number)
+            save_activity(
+                "process",
+                f"[CASE] Case {case_number} auto-closed. No dispute received.",
+                None, "info",
+            )
+        conn.commit()
+    except Exception as exc:
+        logger.error("[SCHEDULER] Auto-close check failed: %s", exc)
+    finally:
+        conn.close()
+
 
 def _check_overdue_and_scheduled() -> None:
-    """Check for overdue SLA tasks and process scheduled tasks that are now due."""
+    """Check for overdue SLA tasks."""
     from src.agents.autonomous_engine import check_overdue_tasks
-    from src.data.database import (
-        get_cases, get_case_tasks, update_task_status, update_case_status,
-        create_satisfaction_survey, save_activity,
-    )
-    from datetime import datetime
-
-    logger.info("[SCHEDULER] Running SLA and scheduled task check")
-
-    # Check overdue tasks
+    logger.info("[SCHEDULER] Running SLA check")
     try:
         check_overdue_tasks()
     except Exception as exc:
         logger.error("[SCHEDULER] Overdue task check failed: %s", exc)
 
-    # Process scheduled tasks that are now due
-    now = datetime.utcnow().isoformat()
-    try:
-        cases = get_cases(limit=500)
-        for case in cases:
-            if case.get("status") in ("closed",):
-                continue
-            case_id = case["id"]
-            case_number = case["case_number"]
-            tasks = get_case_tasks(case_id)
-            for task in tasks:
-                if task.get("task_type") != "scheduled":
-                    continue
-                if task.get("status") not in ("pending",):
-                    continue
-                due = task.get("due_date", "")
-                if due and due <= now:
-                    desc = (task.get("description") or "").lower()
-                    if "satisfaction survey" in desc:
-                        create_satisfaction_survey(case_id, case_number)
-                        save_activity(
-                            "process",
-                            f"[SCHEDULED] Satisfaction survey sent for case {case_number}",
-                            None, "info",
-                        )
-                    elif "resolution notification" in desc:
-                        save_activity(
-                            "process",
-                            f"[SCHEDULED] Resolution notification sent for case {case_number}",
-                            None, "info",
-                        )
-                        update_case_status(case_id, "awaiting_confirmation")
-                    elif "progress update" in desc:
-                        save_activity(
-                            "process",
-                            f"[SCHEDULED] Progress update sent for case {case_number}",
-                            None, "info",
-                        )
-                    elif "auto-close" in desc:
-                        update_case_status(case_id, "closed")
-                        save_activity(
-                            "process",
-                            f"[SCHEDULED] Case {case_number} auto-closed",
-                            None, "info",
-                        )
-                    update_task_status(task["id"], "completed", completed_by="system")
-    except Exception as exc:
-        logger.error("[SCHEDULER] Scheduled task processing failed: %s", exc)
-
 
 def _poll_and_process() -> None:
     """Fetch new complaints from CFPB and process them autonomously."""
-    # Lazy imports to avoid circular deps at import time
     from src.data.cfpb_poller import fetch_new_since_last_poll
     from src.agents.autonomous_engine import process_batch_autonomously
 
@@ -113,9 +93,7 @@ def _poll_and_process() -> None:
         )
     except Exception as exc:
         logger.error("[SCHEDULER] Batch processing failed: %s", exc)
-        save_activity(
-            "error", f"[ERROR] Batch processing failed: {exc}", None, "critical"
-        )
+        save_activity("error", f"[ERROR] Batch processing failed: {exc}", None, "critical")
 
 
 def start_monitoring(interval_minutes: int = 30) -> None:
@@ -138,19 +116,29 @@ def start_monitoring(interval_minutes: int = 30) -> None:
         _scheduler = BackgroundScheduler(
             job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 60}
         )
+        # CFPB poll: every 30 minutes
         _scheduler.add_job(
             _poll_and_process,
             trigger="interval",
             minutes=interval_minutes,
             id="cfpb_poll",
-            next_run_time=datetime.now() + timedelta(seconds=5),  # first run shortly after start
+            next_run_time=datetime.now() + timedelta(seconds=5),
         )
+        # SLA overdue check: every 60 seconds
         _scheduler.add_job(
             _check_overdue_and_scheduled,
             trigger="interval",
-            minutes=60,
+            seconds=60,
             id="sla_check",
             next_run_time=datetime.now() + timedelta(seconds=30),
+        )
+        # Auto-close awaiting_response cases: every 30 seconds
+        _scheduler.add_job(
+            _auto_close_awaiting_cases,
+            trigger="interval",
+            seconds=30,
+            id="auto_close",
+            next_run_time=datetime.now() + timedelta(seconds=15),
         )
         _scheduler.start()
         _start_time = datetime.utcnow()
@@ -160,11 +148,12 @@ def start_monitoring(interval_minutes: int = 30) -> None:
 
         save_activity(
             "system_start",
-            f"[SYSTEM] Autonomous monitoring started. Polling every {interval_minutes} minutes.",
+            f"[SYSTEM] Autonomous monitoring started. Polling every {interval_minutes} minutes. "
+            f"Auto-close check every 30s.",
             None,
             "info",
         )
-        logger.info("[SCHEDULER] Monitoring started with %d-minute interval", interval_minutes)
+        logger.info("[SCHEDULER] Monitoring started with %d-minute poll interval", interval_minutes)
 
 
 def stop_monitoring() -> None:
@@ -191,7 +180,6 @@ def get_status() -> dict:
     interval = int(state.get("poll_interval_minutes", 30))
 
     next_run = None
-    last_run = None
     if running and _scheduler is not None:
         try:
             job = _scheduler.get_job("cfpb_poll")
@@ -227,7 +215,6 @@ def trigger_poll_now() -> None:
         except Exception as exc:
             logger.warning("[SCHEDULER] Could not modify job: %s", exc)
 
-    # Run in a background thread even if scheduler isn't active
     t = threading.Thread(target=_poll_and_process, daemon=True)
     t.start()
     logger.info("[SCHEDULER] Triggered immediate poll in background thread")

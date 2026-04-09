@@ -17,17 +17,16 @@ from src.agents.task_generator import generate_tasks
 from src.data.database import (
     create_case,
     create_case_tasks,
-    create_satisfaction_survey,
     get_complaints_by_company,
     get_overdue_tasks,
-    get_recent_complaints,
-    get_stats,
     save_activity,
     save_complaint,
     save_pattern,
     update_case_status,
     update_task_status,
 )
+from src.utils.email_sender import send_acknowledgment_email
+from src.agents.learning import get_adaptive_threshold, get_suggested_team, record_outcome
 from src.models.schemas import ComplaintInput
 from src.utils.slack import HIGH_RISK_THRESHOLD, send_slack_alert, send_team_routing_alert
 
@@ -108,20 +107,6 @@ def _send_alert_message(text: str) -> None:
     except Exception as exc:
         logger.debug("Could not send Slack alert: %s", exc)
 
-
-def _execute_auto_tasks(case_id: int, task_ids: list[int], tasks: list[dict]) -> int:
-    """Execute 'auto' tasks immediately and mark them completed. Returns count executed."""
-    count = 0
-    for task_id, task in zip(task_ids, tasks):
-        if task.get("task_type") == "auto":
-            desc = task.get("description", "").lower()
-            if "acknowledgment" in desc:
-                logger.info("[CASE] Auto-task: sending acknowledgment (logged — email not configured)")
-            elif "slack" in desc or "alert" in desc:
-                pass  # Slack alert already sent by the tier logic above
-            update_task_status(task_id, "completed", completed_by="system")
-            count += 1
-    return count
 
 
 def process_complaint_autonomously(
@@ -210,32 +195,24 @@ def process_complaint_autonomously(
 
     if tier == "auto":
         auto_processed = True
-        case_status = "in_progress"
+        case_status = "open"  # Human must click "Start Working" to advance
         slack_team_sent = send_team_routing_alert(summary, team)
 
     elif tier == "review":
         human_review_needed = True
-        case_status = "in_progress"
+        case_status = "open"
         slack_team_sent = send_team_routing_alert(summary, team)
 
     elif tier == "escalate":
         human_review_needed = True
         quality_flag = "fail"
-        case_status = "escalated"
+        case_status = "open"  # Escalated badge shown, still starts in OPEN
         slack_team_sent = send_team_routing_alert(summary, team)
         slack_alert_sent = send_slack_alert(summary)
         _send_alert_message(
             f"[ALERT] High-risk complaint escalated: {product} | "
             f"Risk gap: {round(risk_gap * 100, 1)}% | Team: {team}"
         )
-
-        if _COMPLIANCE_EMAIL:
-            from src.utils.email_sender import send_escalation_email
-            email_sent = send_escalation_email(_COMPLIANCE_EMAIL, summary, risk)
-            if not email_sent:
-                email_sent = True
-        else:
-            email_sent = True
 
     elif tier == "hold":
         human_review_needed = True
@@ -285,15 +262,34 @@ def process_complaint_autonomously(
     case_id = case_info["id"]
     case_number = case_info["case_number"]
 
-    # Generate and create tasks
+    # Inject case_number into summary for emails
+    summary["case_number"] = case_number
+
+    # Use adaptive threshold and learning-based team suggestion
+    adaptive_conf_threshold = get_adaptive_threshold(product, _TIER1_OVERALL_CONF)
+    suggested_team = get_suggested_team(product, team)
+    if suggested_team != team:
+        team = suggested_team
+        save_activity(
+            "route",
+            f"[LEARNING] Re-routed to {team} based on historical outcomes for {product}",
+            cid, "info",
+        )
+
+    # Generate and create tasks (human tasks only)
     resolution_steps = resolution.get("remediation_steps", [])
     tasks = generate_tasks(product, issue, team, resolution_steps)
     task_ids = create_case_tasks(case_id, tasks)
+    n_human = len(tasks)
 
-    # Auto-execute 'auto' typed tasks immediately
-    n_auto = _execute_auto_tasks(case_id, task_ids, tasks)
-    n_human = sum(1 for t in tasks if t["task_type"] == "human")
-    n_scheduled = sum(1 for t in tasks if t["task_type"] == "scheduled")
+    # Send acknowledgment email to recipient
+    case_data_for_email = {
+        "case_number": case_number,
+        "product": product,
+        "assigned_team": team,
+    }
+    ack_sent = send_acknowledgment_email(case_data_for_email)
+    email_sent = ack_sent
 
     # Update case status based on tier
     update_case_status(case_id, case_status)
@@ -302,8 +298,8 @@ def process_complaint_autonomously(
     if tier == "auto":
         save_activity(
             "process",
-            f"[AUTO] Case {case_number} — {product}. Auto-completed {n_auto} tasks, "
-            f"assigned {n_human} to {team}. Confidence: {round(overall_conf * 100)}%",
+            f"[AUTO] Case {case_number} — {product}. {n_human} tasks assigned to {team}. "
+            f"Confidence: {round(overall_conf * 100)}%",
             cid,
             "info",
         )
@@ -335,11 +331,11 @@ def process_complaint_autonomously(
 
     save_activity(
         "process",
-        f"[CASE] Case {case_number} opened. {n_auto} tasks auto-completed. "
-        f"{n_human} tasks assigned to {team}. {n_scheduled} tasks scheduled.",
+        f"[CASE] Case {case_number} opened. {n_human} tasks assigned to {team}. "
+        f"Acknowledgment email {'sent' if ack_sent else 'queued (email not configured)'}.",
         cid,
         "info",
-        {"case_number": case_number, "n_auto": n_auto, "n_human": n_human, "n_scheduled": n_scheduled},
+        {"case_number": case_number, "n_human": n_human},
     )
 
     result["_decision"] = {
@@ -420,38 +416,7 @@ def _detect_patterns(company: Optional[str], product: str) -> None:
                 except Exception:
                     pass  # duplicate pattern — ignore
 
-    # Pattern 2: Volume spike — today > 2x 7-day daily average
-    try:
-        stats = get_stats(days=7)
-        today_count = len(get_recent_complaints(hours=24))
-        total_7d = stats.get("total_processed", 0)
-        avg_daily = total_7d / 7 if total_7d > 0 else 0
-
-        if avg_daily > 0 and today_count > 2 * avg_daily:
-            description = (
-                f"Volume spike: {today_count} complaints today vs "
-                f"{round(avg_daily, 1)} daily average"
-            )
-            save_pattern(
-                {
-                    "pattern_type": "volume_spike",
-                    "description": description,
-                    "company": "",
-                    "product": "",
-                    "issue": "",
-                    "complaint_count": today_count,
-                    "time_window_hours": 24,
-                    "complaint_ids": json.dumps([]),
-                }
-            )
-            save_activity(
-                "pattern_detected",
-                f"[PATTERN] {description}",
-                None,
-                "warning",
-            )
-    except Exception as exc:
-        logger.debug("Volume spike check failed: %s", exc)
+    # Volume spike detection removed — only complaint clusters are tracked
 
 
 def process_batch_autonomously(complaints: list[dict]) -> dict:
