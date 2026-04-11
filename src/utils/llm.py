@@ -12,8 +12,24 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+_DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+_HAIKU_MODEL = "claude-haiku-4-5-20251001"
+
+# Agents that use the faster, cheaper Haiku model
+_FAST_AGENTS = {"classifier", "router"}
+
 _client: Optional[anthropic.Anthropic] = None
+
+
+def get_model_for_agent(agent_name: str) -> str:
+    """Return the appropriate Claude model for a given agent.
+
+    Fast/simple agents (classifier, router) use Haiku for lower latency.
+    Complex reasoning agents use Sonnet.
+    """
+    if agent_name.lower() in _FAST_AGENTS:
+        return _HAIKU_MODEL
+    return _DEFAULT_MODEL
 
 
 def get_client() -> anthropic.Anthropic:
@@ -24,7 +40,7 @@ def get_client() -> anthropic.Anthropic:
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY not set in environment")
         _client = anthropic.Anthropic(api_key=api_key)
-        logger.info(f"Anthropic client initialized (model={MODEL})")
+        logger.info(f"Anthropic client initialized (default_model={_DEFAULT_MODEL})")
     return _client
 
 
@@ -32,11 +48,13 @@ def ask_claude(
     prompt: str,
     system: str = "You are a helpful assistant.",
     max_tokens: int = 2048,
+    agent_name: str = "",
 ) -> str:
     """Call Claude and return the text response."""
     client = get_client()
+    model = get_model_for_agent(agent_name) if agent_name else _DEFAULT_MODEL
     resp = client.messages.create(
-        model=MODEL,
+        model=model,
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": prompt}],
@@ -49,10 +67,11 @@ def ask_claude_json(
     system: str = "You are a helpful assistant. Always respond with valid JSON only, no markdown fences.",
     max_tokens: int = 2048,
     retries: int = 1,
+    agent_name: str = "",
 ) -> dict:
     """Call Claude and return a parsed JSON dict. Retries once on parse failure."""
     for attempt in range(retries + 1):
-        raw = ask_claude(prompt, system=system, max_tokens=max_tokens)
+        raw = ask_claude(prompt, system=system, max_tokens=max_tokens, agent_name=agent_name)
         cleaned = _strip_fences(raw)
         try:
             return json.loads(cleaned)

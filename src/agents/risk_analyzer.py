@@ -128,16 +128,34 @@ class RiskAnalyzerAgent:
         risk_gap = float(company_baseline - resolution_probability)
 
         # ── Regulatory risk composite score ───────────────────────────────────
-        # Blend compliance_risk_score from classifier with narrative signals
-        narrative_signal = (
-            0.4 * mentions_regulation
-            + 0.35 * mentions_attorney
-            + 0.15 * mentions_dollar
-            + 0.1 * min(length_raw / 3000.0, 1.0)
-        )
-        regulatory_risk = float(
-            0.6 * classification.compliance_risk_score + 0.4 * narrative_signal
-        )
+        # Strengthened heuristic: product-based base + narrative signals
+        narrative_lower = narrative.lower()
+        product_lower = product.lower()
+        high_risk_products = ["debt collection", "payday loan", "mortgage"]
+        medium_risk_products = ["credit card", "credit reporting", "checking or savings"]
+        if any(p in product_lower for p in high_risk_products):
+            product_base = 0.35
+        elif any(p in product_lower for p in medium_risk_products):
+            product_base = 0.20
+        else:
+            product_base = 0.10
+
+        regulatory_risk = product_base
+        regulatory_risk += 0.25 * mentions_regulation
+        regulatory_risk += 0.20 * mentions_attorney
+        regulatory_risk += 0.10 * mentions_dollar
+        # Multiple contact attempts
+        if "called" in narrative_lower and any(
+            w in narrative_lower for w in ("times", "multiple", "repeated")
+        ):
+            regulatory_risk += 0.10
+        # Vulnerable consumer signals
+        if any(
+            w in narrative_lower for w in ("senior", "elderly", "disabled", "fixed income")
+        ):
+            regulatory_risk += 0.10
+        # Blend with classifier's compliance_risk_score for additional signal
+        regulatory_risk = float(0.6 * regulatory_risk + 0.4 * classification.compliance_risk_score)
         regulatory_risk = max(0.0, min(1.0, regulatory_risk))
 
         # ── Intervention effect: delta if regulation mention added ─────────────

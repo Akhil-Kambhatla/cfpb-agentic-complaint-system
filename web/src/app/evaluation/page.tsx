@@ -3,6 +3,9 @@
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+
+const API = "http://localhost:8000/api";
 
 // All chart components are client-only (Recharts needs browser)
 const Charts = dynamic(() => import("@/components/EvaluationCharts").then((m) => ({
@@ -35,29 +38,63 @@ const Charts = dynamic(() => import("@/components/EvaluationCharts").then((m) =>
   ),
 });
 
-// ─── Bayesian Findings (static, no Recharts needed) ──────────────────────────
+// ─── Bayesian Findings (loads from API) ──────────────────────────────────────
 function BayesianFindings() {
-  const featureImportance = [
-    { label: "Product type", value: 0.713, color: "#10b981", positive: true },
-    { label: "Mentions dollar amount", value: 0.053, color: "#9ca3af", positive: true },
-    { label: "Mentions regulation", value: 0.041, color: "#9ca3af", positive: false },
-    { label: "Mentions attorney", value: 0.007, color: "#9ca3af", positive: false },
-    { label: "Narrative length", value: 0.002, color: "#9ca3af", positive: false },
-  ];
+  const [apiStats, setApiStats] = useState<Record<string, unknown> | null>(null);
 
-  const resolutionRates = [
-    { product: "Credit Reporting", rate: 47.0 },
-    { product: "Credit Card", rate: 32.2 },
-    { product: "Debt Collection", rate: 26.9 },
-    { product: "Prepaid Card", rate: 20.0 },
-    { product: "Checking/Savings", rate: 15.6 },
-    { product: "Vehicle Loan", rate: 15.5 },
-    { product: "Debt Management", rate: 10.3 },
-    { product: "Payday Loan", rate: 7.1 },
-    { product: "Money Transfer", rate: 7.0 },
-    { product: "Mortgage", rate: 5.6 },
-    { product: "Student Loan", rate: 1.9 },
-  ];
+  useEffect(() => {
+    fetch(`${API}/dataset-stats`)
+      .then((r) => r.json())
+      .then((d) => setApiStats(d))
+      .catch(() => {});
+  }, []);
+
+  // Feature importance from Bayesian coefficients (absolute values)
+  const coeffs = (apiStats?.bayesian_coefficients ?? null) as Record<string, { mean: number }> | null;
+  const featureImportance = coeffs
+    ? [
+        { label: "Product type", value: Math.abs(coeffs.product_rate?.mean ?? 0.713), color: "#10b981", positive: (coeffs.product_rate?.mean ?? 1) > 0 },
+        { label: "Mentions dollar amount", value: Math.abs(coeffs.mentions_dollar?.mean ?? 0.053), color: "#9ca3af", positive: (coeffs.mentions_dollar?.mean ?? 1) > 0 },
+        { label: "Mentions regulation", value: Math.abs(coeffs.mentions_regulation?.mean ?? 0.041), color: "#9ca3af", positive: (coeffs.mentions_regulation?.mean ?? 1) > 0 },
+        { label: "Mentions attorney", value: Math.abs(coeffs.mentions_attorney?.mean ?? 0.007), color: "#9ca3af", positive: (coeffs.mentions_attorney?.mean ?? -1) > 0 },
+        { label: "Narrative length", value: Math.abs(coeffs.narrative_length?.mean ?? 0.002), color: "#9ca3af", positive: (coeffs.narrative_length?.mean ?? -1) > 0 },
+      ].sort((a, b) => b.value - a.value)
+    : [
+        { label: "Product type", value: 0.713, color: "#10b981", positive: true },
+        { label: "Mentions dollar amount", value: 0.053, color: "#9ca3af", positive: true },
+        { label: "Mentions regulation", value: 0.041, color: "#9ca3af", positive: false },
+        { label: "Mentions attorney", value: 0.007, color: "#9ca3af", positive: false },
+        { label: "Narrative length", value: 0.002, color: "#9ca3af", positive: false },
+      ];
+
+  // Resolution rates by product from API
+  const ratesByProduct = (apiStats?.resolution_rates_by_product ?? null) as Record<string, { rate: number; count: number }> | null;
+  const resolutionRates = ratesByProduct
+    ? Object.entries(ratesByProduct)
+        .map(([product, d]) => ({
+          product: product.replace(/ or other.*$/, "").replace("Payday loan, title loan, personal loan, or advance loan", "Payday/Personal Loan"),
+          rate: d.rate,
+        }))
+        .sort((a, b) => b.rate - a.rate)
+        .slice(0, 11)
+    : [
+        { product: "Credit Reporting", rate: 47.0 },
+        { product: "Credit Card", rate: 32.2 },
+        { product: "Debt Collection", rate: 26.9 },
+        { product: "Prepaid Card", rate: 20.0 },
+        { product: "Checking/Savings", rate: 15.6 },
+        { product: "Vehicle Loan", rate: 15.5 },
+        { product: "Debt Management", rate: 10.3 },
+        { product: "Payday Loan", rate: 7.1 },
+        { product: "Money Transfer", rate: 7.0 },
+        { product: "Mortgage", rate: 5.6 },
+        { product: "Student Loan", rate: 1.9 },
+      ];
+
+  const highRiskPct = (apiStats?.high_risk_gap_pct as number | undefined) ?? 8.6;
+  const highRiskCount = (apiStats?.high_risk_gap_count as number | undefined) ?? 856;
+  const totalAnalyzed = (apiStats?.total_complaints_analyzed as number | undefined) ?? 10000;
+  const maxRate = resolutionRates[0]?.rate ?? 47;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -73,7 +110,7 @@ function BayesianFindings() {
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {featureImportance.map(({ label, value, color, positive }) => {
-              const widthPct = (value / 0.713) * 95;
+              const widthPct = (value / (featureImportance[0]?.value || 0.713)) * 95;
               return (
                 <div key={label}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -109,7 +146,7 @@ function BayesianFindings() {
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             {resolutionRates.map(({ product, rate }) => {
-              const pct = (rate / 47) * 100;
+              const pct = (rate / maxRate) * 100;
               const color = rate >= 35 ? "#10b981" : rate >= 20 ? "#f59e0b" : "#e11d48";
               return (
                 <div key={product}>
@@ -129,7 +166,7 @@ function BayesianFindings() {
         {/* Card 3: Risk gap */}
         <div style={{ borderRadius: 12, border: "1px solid #fca5a5", background: "#fff1f2", padding: "16px 18px" }}>
           <h4 style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
-            8.6% of Complaints Are Dangerously Under-Prioritized
+            {highRiskPct.toFixed(1)}% of Complaints Are Dangerously Under-Prioritized
           </h4>
           <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 16px", lineHeight: 1.5 }}>
             Our risk gap analysis identified complaints where companies dismissed despite high regulatory risk.
@@ -138,8 +175,8 @@ function BayesianFindings() {
             borderRadius: 10, background: "#fff", border: "1px solid #fca5a5",
             padding: "14px 16px", textAlign: "center", marginBottom: 12,
           }}>
-            <p style={{ fontSize: 42, fontWeight: 800, color: "#e11d48", margin: 0, lineHeight: 1 }}>856</p>
-            <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>complaints in our dataset</p>
+            <p style={{ fontSize: 42, fontWeight: 800, color: "#e11d48", margin: 0, lineHeight: 1 }}>{highRiskCount.toLocaleString()}</p>
+            <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>out of {totalAnalyzed.toLocaleString()} analyzed</p>
           </div>
           <p style={{ fontSize: 11, color: "#374151", lineHeight: 1.65, margin: 0 }}>
             These represent the highest-value targets for proactive intervention — dismissed complaints where

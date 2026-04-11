@@ -156,6 +156,7 @@ export default function AnalyzePage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [resultsVisible, setResultsVisible] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const autoTriggerRef = useRef(false);
 
   const isRunning = phase === "running";
   const isComplete = phase === "complete";
@@ -170,6 +171,33 @@ export default function AnalyzePage() {
       setResultsVisible(false);
     }
   }, [isComplete]);
+
+  // Auto-populate from sessionStorage (navigated from Monitor "View Full Analysis")
+  useEffect(() => {
+    const storedNarrative = sessionStorage.getItem("analyze_narrative");
+    if (storedNarrative) {
+      const storedCompany = sessionStorage.getItem("analyze_company") || "";
+      const storedState = sessionStorage.getItem("analyze_state") || "";
+      sessionStorage.removeItem("analyze_narrative");
+      sessionStorage.removeItem("analyze_company");
+      sessionStorage.removeItem("analyze_state");
+      autoTriggerRef.current = true;
+      setNarrative(storedNarrative);
+      if (storedCompany) setCompany(storedCompany);
+      if (storedState) setState(storedState);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-trigger once narrative is set from sessionStorage
+  useEffect(() => {
+    if (autoTriggerRef.current && narrative && phase === "idle") {
+      autoTriggerRef.current = false;
+      setInputCollapsed(true);
+      handleAnalyze();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [narrative]);
 
   const loadSample = (id: string) => {
     const s = SAMPLES.find((x) => x.id === id);

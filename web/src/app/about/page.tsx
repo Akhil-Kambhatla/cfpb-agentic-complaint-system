@@ -203,8 +203,36 @@ function ROICalculator() {
   );
 }
 
+// ─── Dataset stats type ───────────────────────────────────────────────────────
+interface DatasetStats {
+  total_complaints_analyzed: number;
+  total_complaints_in_database: number;
+  bayesian_training_samples: number;
+  pct_closed_with_explanation: number;
+  pct_got_resolution: number;
+  high_risk_gap_pct: number;
+  unique_products: number;
+}
+
+const API = "http://localhost:8000/api";
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function AboutPage() {
+  const [stats, setStats] = useState<DatasetStats | null>(null);
+
+  useEffect(() => {
+    fetch(`${API}/dataset-stats`)
+      .then((r) => r.json())
+      .then((d) => setStats(d))
+      .catch(() => {});
+  }, []);
+
+  const closedPct = stats?.pct_closed_with_explanation ?? 59.8;
+  const highRiskPct = stats?.high_risk_gap_pct ?? 8.6;
+  const totalAnalyzed = stats?.total_complaints_analyzed ?? 100000;
+  const bayesianSamples = stats?.bayesian_training_samples ?? 35000;
+  const uniqueProducts = stats?.unique_products ?? 11;
+
   return (
     <div>
 
@@ -239,7 +267,7 @@ export default function AboutPage() {
               { value: "70%", label: "Product accuracy", color: "#10b981" },
               { value: "6", label: "Specialized agents", color: "#0ea5e9" },
               { value: "8.4s", label: "Avg pipeline latency", color: "#8b5cf6" },
-              { value: "11", label: "Product categories", color: "#f59e0b" },
+              { value: String(uniqueProducts), label: "Product categories", color: "#f59e0b" },
             ].map(({ value, label, color }) => (
               <div key={label} style={{
                 borderRadius: 14, border: `1px solid ${color}30`, background: `${color}08`,
@@ -260,15 +288,15 @@ export default function AboutPage() {
         <div style={{ display: "flex", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
           <BigStatCard end={14} suffix="M+" label="complaints in the CFPB database" color="#0ea5e9" />
           <BigStatCard end={2.9} suffix="B" prefix="$" label="complaint management software market (2026)" color="#7c3aed" decimals={1} />
-          <BigStatCard end={59} suffix="%" label="of complaints closed with just an explanation" color="#f97316" />
-          <BigStatCard end={8.6} suffix="%" label="of dismissed complaints carry high regulatory risk" color="#e11d48" decimals={1} />
+          <BigStatCard end={closedPct} suffix="%" label="of complaints closed with just an explanation" color="#f97316" decimals={1} />
+          <BigStatCard end={highRiskPct} suffix="%" label="of dismissed complaints carry high regulatory risk" color="#e11d48" decimals={1} />
         </div>
         <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
           {[
             "14M+: CFPB Consumer Complaint Database, 2011–2025",
             "$2.9B: Research and Markets, Global Forecast 2026",
-            "59%: Our 10K-complaint dataset (2024+)",
-            "8.6%: Risk gap analysis on our 10K-complaint dataset",
+            `${closedPct.toFixed(1)}%: Our ${(totalAnalyzed / 1000).toFixed(0)}K-complaint analysis (2024+)`,
+            `${highRiskPct.toFixed(1)}%: Risk gap analysis on our ${(totalAnalyzed / 1000).toFixed(0)}K-complaint dataset`,
           ].map((s) => (
             <p key={s} style={{ fontSize: 10, color: "#9ca3af", margin: 0, flex: 1, minWidth: 160 }}>Source: {s}</p>
           ))}
@@ -338,7 +366,7 @@ export default function AboutPage() {
           <AgentRow num={1} name="Classifier" color="#0ea5e9"
             desc="Identifies product, issue, severity, and compliance risk from raw narrative using structured LLM output and few-shot examples from CFPB categories." />
           <AgentRow num={2} name="Bayesian Risk Analyzer" color="#8b5cf6"
-            desc="Predicts resolution probability with calibrated uncertainty — 95% credible intervals, not just a point estimate, using Bayesian logistic regression on 10,000 CFPB complaints." />
+            desc={`Predicts resolution probability with calibrated uncertainty — 95% credible intervals, not just a point estimate, using Bayesian logistic regression on ${bayesianSamples.toLocaleString()} CFPB complaints.`} />
           <AgentRow num={3} name="Event Chain Analyst" color="#f97316"
             desc="Traces the sequence of events that led to the complaint, identifying root cause, causal chain, and the prevention step that would have stopped the complaint." />
           <AgentRow num={4} name="Router" color="#10b981"
@@ -363,7 +391,7 @@ export default function AboutPage() {
             {
               title: "Risk Gap Analysis",
               color: "#e11d48",
-              text: "We analyzed 10,000 real CFPB complaints and discovered something alarming: 856 complaints (8.6%) were dismissed by companies despite carrying high regulatory risk. These are the complaints most likely to trigger CFPB enforcement actions — and companies are letting them slip through. Across the full 5 million+ complaint CFPB database, this pattern would scale to potentially hundreds of thousands of dangerously mishandled complaints. Our system catches them automatically.",
+              text: `We analyzed ${(totalAnalyzed).toLocaleString()} real CFPB complaints and discovered something alarming: ${Math.round(totalAnalyzed * highRiskPct / 100).toLocaleString()} complaints (${highRiskPct.toFixed(1)}%) were dismissed by companies despite carrying high regulatory risk. These are the complaints most likely to trigger CFPB enforcement actions — and companies are letting them slip through. Across the full 14M+ complaint CFPB database, this pattern would scale to potentially hundreds of thousands of dangerously mishandled complaints. Our system catches them automatically.`,
             },
             {
               title: "The Product Type Finding",

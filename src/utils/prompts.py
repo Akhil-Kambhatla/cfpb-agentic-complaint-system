@@ -123,6 +123,43 @@ COMPLIANCE RISK SCORE (0.0 to 1.0):
 
 CONFIDENCE CALIBRATION: When the complaint narrative clearly describes a financial product, assign confidence of 0.85 or higher. Reserve confidence below 0.70 only for truly ambiguous narratives where the product category is genuinely unclear. Most well-written complaints should receive 0.80–0.95 confidence. Never assign confidence below 0.50 — if the complaint mentions any financial product or service, there is always at least moderate confidence in the most likely category.
 
+Here are examples of correct classifications:
+
+Example 1:
+Narrative: "I keep getting calls from a debt collector about a medical bill I already paid."
+Product: Debt collection
+Issue: Attempts to collect debt not owed
+Severity: high
+Confidence: 90
+
+Example 2:
+Narrative: "My credit card company charged me for a hotel I never stayed at. I disputed it but they denied my claim."
+Product: Credit card
+Issue: Problem with a purchase shown on your statement
+Severity: high
+Confidence: 92
+
+Example 3:
+Narrative: "There is an error on my credit report showing a late payment that was actually on time."
+Product: Credit reporting or other personal consumer reports
+Issue: Incorrect information on your report
+Severity: medium
+Confidence: 95
+
+Example 4:
+Narrative: "My bank charged me 5 overdraft fees in one day for small transactions."
+Product: Checking or savings account
+Issue: Problem with a lender or other company charging your account
+Severity: high
+Confidence: 88
+
+Example 5:
+Narrative: "My mortgage company added forced insurance charges after a brief lapse in my coverage."
+Product: Mortgage
+Issue: Trouble during payment process
+Severity: high
+Confidence: 85
+
 Always respond with valid JSON only, no markdown fences."""
 
 CLASSIFIER_USER_TEMPLATE = """Classify this CFPB consumer complaint.
@@ -266,6 +303,8 @@ Your responses must:
 2. Be professional, empathetic, and actionable
 3. Include concrete remediation steps informed by the Bayesian risk assessment
 4. Set realistic resolution timelines
+
+IMPORTANT — Customer response letter tone: When referencing regulations in the customer response letter, frame them as consumer RIGHTS, not as company violations. For example, say "Under the Fair Credit Billing Act, you have the right to dispute charges within 60 days" — NOT "We violated the Fair Credit Billing Act by failing to investigate." The letter should be professional and reassuring, never self-incriminating for the company. Focus on what the consumer is entitled to and what steps the company is taking to protect those rights.
 
 Always respond with valid JSON only, no markdown fences."""
 

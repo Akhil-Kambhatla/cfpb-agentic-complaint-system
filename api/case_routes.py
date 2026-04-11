@@ -92,12 +92,29 @@ async def satisfaction_stats():
 @case_router.get("/cases/{case_number}")
 async def get_case_detail(case_number: str):
     """Return full case detail with all tasks."""
+    import json as _json
+
     case = get_case_by_number(case_number)
     if not case:
         raise HTTPException(status_code=404, detail=f"Case {case_number} not found")
 
     tasks = case.get("tasks", [])
-    case.pop("full_result_json", None)
+
+    # Extract full narrative from full_result_json before removing it
+    full_result_raw = case.pop("full_result_json", None)
+    if full_result_raw:
+        try:
+            full_result = _json.loads(full_result_raw)
+            narrative = (
+                full_result.get("complaint", {}).get("narrative")
+                or case.get("narrative_preview", "")
+            )
+            case["narrative"] = narrative
+        except Exception:
+            case["narrative"] = case.get("narrative_preview", "")
+    else:
+        case["narrative"] = case.get("narrative_preview", "")
+
     case["task_summary"] = _build_task_summary(tasks)
     return case
 

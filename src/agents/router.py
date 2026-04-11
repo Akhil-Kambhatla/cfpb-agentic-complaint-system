@@ -43,7 +43,7 @@ class RouterAgent:
             risk_level=risk_analysis.risk_level,
         )
         try:
-            data = ask_claude_json(prompt, system=ROUTER_SYSTEM)
+            data = ask_claude_json(prompt, system=ROUTER_SYSTEM, agent_name="router")
             for key, default in _DEFAULTS.items():
                 data.setdefault(key, default)
             return RoutingOutput(**data)

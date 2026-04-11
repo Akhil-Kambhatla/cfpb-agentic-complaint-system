@@ -31,7 +31,7 @@ class ClassifierAgent:
             state=complaint.state or "Unknown",
         )
         try:
-            data = ask_claude_json(prompt, system=CLASSIFIER_SYSTEM)
+            data = ask_claude_json(prompt, system=CLASSIFIER_SYSTEM, agent_name="classifier")
             # Ensure required fields exist
             for key, default in _DEFAULTS.items():
                 if key not in data or data[key] is None and key not in (

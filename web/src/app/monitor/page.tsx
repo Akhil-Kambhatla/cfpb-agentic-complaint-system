@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   AlertTriangle,
@@ -139,6 +140,7 @@ interface CaseTask {
 
 interface CaseDetail extends CaseSummary {
   tasks: CaseTask[];
+  narrative?: string;
   task_summary: {
     total: number;
     completed: number;
@@ -765,6 +767,7 @@ function TaskTimeline({
 }
 
 function RiskIntelligencePanel({ caseDetail }: { caseDetail: CaseDetail }) {
+  const router = useRouter();
   const resPct = Math.round((caseDetail.resolution_probability || 0) * 100);
   const riskPct = Math.round((caseDetail.risk_gap || 0) * 100);
 
@@ -811,17 +814,25 @@ function RiskIntelligencePanel({ caseDetail }: { caseDetail: CaseDetail }) {
           <p style={{ fontSize: 11, color: "#374151", margin: 0, lineHeight: 1.5 }}>{keyFinding}</p>
         </div>
       )}
-      <a
-        href="/analyze"
+      <button
+        onClick={() => {
+          const narrative = caseDetail.narrative || caseDetail.narrative_preview || "";
+          if (narrative) {
+            sessionStorage.setItem("analyze_narrative", narrative);
+            sessionStorage.setItem("analyze_company", caseDetail.company || "");
+            sessionStorage.setItem("analyze_state", caseDetail.state || "");
+          }
+          router.push("/analyze");
+        }}
         style={{
-          display: "block", marginTop: 10, fontSize: 11, color: "#2563eb",
-          fontWeight: 600, textDecoration: "none", textAlign: "center",
+          display: "block", width: "100%", marginTop: 10, fontSize: 11, color: "#2563eb",
+          fontWeight: 600, cursor: "pointer", textAlign: "center",
           padding: "5px 0", borderRadius: 6, border: "1px solid #bfdbfe",
           background: "#eff6ff",
         }}
       >
         View Full Analysis →
-      </a>
+      </button>
     </div>
   );
 }
@@ -1577,6 +1588,8 @@ export default function MonitorPage() {
   const [expandedCase, setExpandedCase] = useState<string | null>(null);
   const [caseDetail, setCaseDetail] = useState<CaseDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const caseDetailRef = useRef<HTMLDivElement>(null);
+  const [detailHighlight, setDetailHighlight] = useState(false);
   const [completedTaskIds, setCompletedTaskIds] = useState<Set<number>>(new Set());
   const [polling, setPolling] = useState(false);
   const [simulating, setSimulating] = useState(false);
@@ -1670,10 +1683,21 @@ export default function MonitorPage() {
     return () => { clearInterval(fast); clearInterval(slow); };
   }, [fetchStatus, fetchActivity, fetchPatterns, fetchCases, fetchCaseStats, fetchSatisfaction, fetchStats, fetchEmails]);
 
-  // Load case detail when expanding
+  // Load case detail when expanding, then scroll to it
   useEffect(() => {
-    if (expandedCase) { fetchCaseDetail(expandedCase); setCompletedTaskIds(new Set()); }
-    else { setCaseDetail(null); setCompletedTaskIds(new Set()); }
+    if (expandedCase) {
+      fetchCaseDetail(expandedCase);
+      setCompletedTaskIds(new Set());
+      // Smooth scroll to detail panel after a short delay for it to render
+      setTimeout(() => {
+        caseDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        setDetailHighlight(true);
+        setTimeout(() => setDetailHighlight(false), 500);
+      }, 120);
+    } else {
+      setCaseDetail(null);
+      setCompletedTaskIds(new Set());
+    }
   }, [expandedCase, fetchCaseDetail]);
 
   // ── actions ─────────────────────────────────────
@@ -1975,7 +1999,15 @@ export default function MonitorPage() {
 
         {/* Expanded case detail panel */}
         {expandedCase && (
-          <div style={{ padding: 20, background: "#f8fafc", borderTop: "1px solid #e5e7eb" }}>
+          <div
+            ref={caseDetailRef}
+            style={{
+              padding: 20,
+              background: detailHighlight ? "#fefce8" : "#f8fafc",
+              borderTop: "1px solid #e5e7eb",
+              transition: "background 0.5s ease",
+            }}
+          >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: 0 }}>
                 Case {expandedCase} — Detail View

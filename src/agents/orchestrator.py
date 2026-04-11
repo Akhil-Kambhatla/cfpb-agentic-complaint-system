@@ -1,6 +1,7 @@
 """Orchestrator — wires agents into a LangGraph StateGraph pipeline."""
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -51,15 +52,17 @@ def _classify(state: PipelineState) -> PipelineState:
     return state
 
 
-def _event_chain(state: PipelineState) -> PipelineState:
-    agent = EventChainAgent()
-    state["event_chain"] = agent.run(state["complaint"], state["classification"])
-    return state
+def _risk_and_event_chain_parallel(state: PipelineState) -> PipelineState:
+    """Run Risk Analyzer and Event Chain in parallel — they don't depend on each other."""
+    complaint = state["complaint"]
+    classification = state["classification"]
 
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        risk_future = executor.submit(RiskAnalyzerAgent().run, complaint, classification)
+        event_future = executor.submit(EventChainAgent().run, complaint, classification)
+        state["risk_analysis"] = risk_future.result()
+        state["event_chain"] = event_future.result()
 
-def _risk(state: PipelineState) -> PipelineState:
-    agent = RiskAnalyzerAgent()
-    state["risk_analysis"] = agent.run(state["complaint"], state["classification"])
     return state
 
 
@@ -103,18 +106,18 @@ def _build_graph() -> StateGraph:
     graph = StateGraph(PipelineState)
 
     graph.add_node("classify", lambda s: _time_node("classify", _classify, s))
-    graph.add_node("event_chain", lambda s: _time_node("event_chain", _event_chain, s))
-    graph.add_node("risk", lambda s: _time_node("risk", _risk, s))
+    graph.add_node(
+        "risk_and_event_chain",
+        lambda s: _time_node("risk_and_event_chain", _risk_and_event_chain_parallel, s),
+    )
     graph.add_node("route", lambda s: _time_node("route", _route, s))
     graph.add_node("resolve", lambda s: _time_node("resolve", _resolve, s))
     graph.add_node("quality", lambda s: _time_node("quality", _quality, s))
 
-    # Event chain and risk analyzer run sequentially after classify
-    # (risk is fast/local; event_chain feeds into router)
+    # Risk Analyzer and Event Chain run in parallel after Classify
     graph.set_entry_point("classify")
-    graph.add_edge("classify", "risk")
-    graph.add_edge("risk", "event_chain")
-    graph.add_edge("event_chain", "route")
+    graph.add_edge("classify", "risk_and_event_chain")
+    graph.add_edge("risk_and_event_chain", "route")
     graph.add_edge("route", "resolve")
     graph.add_edge("resolve", "quality")
     graph.add_edge("quality", END)
