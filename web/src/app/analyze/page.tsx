@@ -40,6 +40,7 @@ import ReasoningLog from "@/components/ReasoningLog";
 import RiskDashboard from "@/components/RiskDashboard";
 import RiskAssessmentPanel from "@/components/RiskAssessmentPanel";
 import BatchUpload from "@/components/BatchUpload";
+import InfoTooltip from "@/components/InfoTooltip";
 
 const AgentFlowDiagram = dynamic(
   () => import("@/components/AgentFlowDiagram"),
@@ -143,12 +144,14 @@ export default function AnalyzePage() {
     routing,
     resolution,
     qualityCheck,
+    predictedSatisfaction,
     totalTime,
     slackAlertSent,
     teamAlertSent,
     caseNumber,
     handleAnalyze,
     resetAnalysis,
+    restoreFromSession,
   } = useAnalysis();
 
   const [inputCollapsed, setInputCollapsed] = useState(false);
@@ -174,6 +177,17 @@ export default function AnalyzePage() {
 
   // Auto-populate from sessionStorage (navigated from Monitor "View Full Analysis")
   useEffect(() => {
+    // New-style: Monitor stored pre-computed results — restore them directly without re-running pipeline
+    const hasStoredResults = !!sessionStorage.getItem("analyzeResults");
+    if (hasStoredResults) {
+      const restored = restoreFromSession();
+      if (restored) {
+        setInputCollapsed(true);
+        return;
+      }
+    }
+
+    // Legacy fallback: Monitor couldn't fetch stored results, passed narrative for fresh analysis
     const storedNarrative = sessionStorage.getItem("analyze_narrative");
     if (storedNarrative) {
       const storedCompany = sessionStorage.getItem("analyze_company") || "";
@@ -676,6 +690,78 @@ export default function AnalyzePage() {
                 <motion.div variants={resultItem}>
                   <AgentCardWrapper title="Resolution Plan" icon={FileText}>
                     <ResolutionCard data={resolution} />
+
+                    {/* Preventive Recommendation (single focused recommendation) */}
+                    {resolution.preventive_recommendation && (
+                      <div style={{
+                        marginTop: 14, padding: "12px 14px",
+                        borderRadius: 10, border: "1px solid #e0f2fe",
+                        background: "#f0f9ff",
+                      }}>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                          Preventive Recommendation
+                        </p>
+                        <p style={{ fontSize: 12, color: "#0c4a6e", lineHeight: 1.6, margin: 0 }}>
+                          {resolution.preventive_recommendation}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Predicted Customer Satisfaction */}
+                    {predictedSatisfaction && (
+                      <div style={{
+                        marginTop: 14, padding: "14px 16px",
+                        borderRadius: 10, border: "1px solid #e5e7eb",
+                        background: "#f9fafb",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: "#374151", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                            Predicted Customer Satisfaction
+                          </p>
+                          <InfoTooltip text="Estimated from dispute rates in our 100,000-complaint CFPB dataset. Consumers who received monetary relief disputed 9.9% of the time (proxy satisfaction: 4.6/5). Consumers who received only an explanation disputed 21.5% of the time (proxy: 3.9/5). Based on 5,271 complaints with dispute data. Adjustments applied for response time, severity, and product complexity." />
+                        </div>
+                        {/* Score + gauge */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>
+                          <div>
+                            <span style={{ fontSize: 28, fontWeight: 800, color: predictedSatisfaction.predicted_score >= 4 ? "#059669" : predictedSatisfaction.predicted_score >= 3 ? "#d97706" : "#dc2626" }}>
+                              {predictedSatisfaction.predicted_score.toFixed(1)}
+                            </span>
+                            <span style={{ fontSize: 13, color: "#6b7280", marginLeft: 3 }}>/ 5</span>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ height: 8, background: "#e5e7eb", borderRadius: 4 }}>
+                              <div style={{
+                                height: "100%", borderRadius: 4,
+                                background: predictedSatisfaction.predicted_score >= 4 ? "#10b981" : predictedSatisfaction.predicted_score >= 3 ? "#f59e0b" : "#ef4444",
+                                width: `${(predictedSatisfaction.predicted_score / 5) * 100}%`,
+                                transition: "width 0.6s ease",
+                              }} />
+                            </div>
+                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "3px 0 0" }}>
+                              Range: {predictedSatisfaction.confidence_range[0].toFixed(1)} — {predictedSatisfaction.confidence_range[1].toFixed(1)}
+                            </p>
+                          </div>
+                        </div>
+                        {/* Factors */}
+                        {Object.entries(predictedSatisfaction.factors).length > 0 && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 }}>
+                            {Object.entries(predictedSatisfaction.factors).map(([key, val]) => (
+                              <div key={key} style={{ fontSize: 11, color: "#4b5563" }}>
+                                <span style={{ color: String(val).startsWith("+") ? "#059669" : "#dc2626", fontWeight: 600 }}>
+                                  {String(val).split(" ")[0]}
+                                </span>{" "}
+                                {String(val).split(" ").slice(1).join(" ")}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {predictedSatisfaction.recommendation && (
+                          <p style={{ fontSize: 11, color: "#374151", margin: 0, fontStyle: "italic", lineHeight: 1.5 }}>
+                            {predictedSatisfaction.recommendation}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </AgentCardWrapper>
                 </motion.div>
               )}

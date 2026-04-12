@@ -69,9 +69,17 @@ export interface ResolutionOutput {
   remediation_steps: string[];
   customer_response_letter: string;
   preventive_recommendations: string[];
+  preventive_recommendation?: string | null;
   applicable_regulations: string[];
   estimated_resolution_days: number;
   reasoning: string;
+}
+
+export interface SatisfactionPrediction {
+  predicted_score: number;
+  confidence_range: [number, number];
+  factors: Record<string, string>;
+  recommendation: string;
 }
 
 export interface QualityCheckOutput {
@@ -92,6 +100,7 @@ export interface PipelineOutput {
   quality_check: QualityCheckOutput;
   slack_alert_sent?: boolean;
   team_alert_sent?: boolean;
+  predicted_satisfaction?: SatisfactionPrediction | null;
 }
 
 export type AgentName =

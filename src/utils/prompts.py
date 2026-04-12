@@ -1,21 +1,11 @@
 """All prompt templates for the CFPB agentic pipeline."""
 
+from src.utils.product_mapping import CANONICAL_PRODUCTS
+
 # ──────────────────────────────────────────────
-# Exact CFPB product labels from dev_set_10k.csv
+# Canonical product labels (12 categories)
 # ──────────────────────────────────────────────
-CFPB_PRODUCTS = [
-    "Credit reporting or other personal consumer reports",
-    "Checking or savings account",
-    "Debt collection",
-    "Money transfer, virtual currency, or money service",
-    "Credit card",
-    "Student loan",
-    "Mortgage",
-    "Debt or credit management",
-    "Payday loan, title loan, personal loan, or advance loan",
-    "Vehicle loan or lease",
-    "Prepaid card",
-]
+CFPB_PRODUCTS = CANONICAL_PRODUCTS
 
 CFPB_ISSUES = [
     "Advertising",
@@ -101,10 +91,12 @@ _ISSUE_LIST = "\n".join(f"- {i}" for i in CFPB_ISSUES)
 # ──────────────────────────────────────────────
 
 CLASSIFIER_SYSTEM = f"""You are an expert CFPB (Consumer Financial Protection Bureau) complaint analyst.
-Your job is to classify consumer complaint narratives using the OFFICIAL CFPB taxonomy.
+Your job is to classify consumer complaint narratives using these 12 canonical product categories.
 
-VALID PRODUCTS (you MUST choose one of these exactly):
+VALID PRODUCTS — classify into EXACTLY one of these 12 categories (use these exact names):
 {_PRODUCT_LIST}
+
+Do not invent new categories. Use these exact names.
 
 VALID ISSUES (you MUST choose one of these exactly):
 {_ISSUE_LIST}
@@ -127,28 +119,28 @@ Here are examples of correct classifications:
 
 Example 1:
 Narrative: "I keep getting calls from a debt collector about a medical bill I already paid."
-Product: Debt collection
+Product: Debt Collection
 Issue: Attempts to collect debt not owed
 Severity: high
 Confidence: 90
 
 Example 2:
 Narrative: "My credit card company charged me for a hotel I never stayed at. I disputed it but they denied my claim."
-Product: Credit card
+Product: Credit Card
 Issue: Problem with a purchase shown on your statement
 Severity: high
 Confidence: 92
 
 Example 3:
 Narrative: "There is an error on my credit report showing a late payment that was actually on time."
-Product: Credit reporting or other personal consumer reports
+Product: Credit Reporting
 Issue: Incorrect information on your report
 Severity: medium
 Confidence: 95
 
 Example 4:
 Narrative: "My bank charged me 5 overdraft fees in one day for small transactions."
-Product: Checking or savings account
+Product: Checking or Savings Account
 Issue: Problem with a lender or other company charging your account
 Severity: high
 Confidence: 88
@@ -333,6 +325,10 @@ Priority: {priority_level}
 
 Applicable regulations for {product}: {regulations}
 
+BE CONCISE: 3-4 remediation steps max. Customer letter ≤ 120 words (2 short paragraphs). 1-2 preventive recommendations. Cite only the single most relevant regulation.
+
+For preventive_recommendation: provide ONE specific, actionable change the company could make to prevent similar complaints in the future. Be specific to this product and issue type (e.g. "Implement automated SMS notification 24 hours before overdraft fees are charged, allowing consumers to add funds and avoid the fee.").
+
 Respond with this exact JSON structure:
 {{
   "remediation_steps": [
@@ -340,14 +336,14 @@ Respond with this exact JSON structure:
     "<step 2>",
     "<step 3>"
   ],
-  "customer_response_letter": "<2-3 paragraph professional letter acknowledging the complaint, explaining actions taken, and providing timeline. Reference specific regulations.>",
+  "customer_response_letter": "<2 short paragraphs, ≤120 words total, acknowledging the complaint and stating next steps. Reference one specific regulation.>",
   "preventive_recommendations": [
-    "<recommendation 1>",
-    "<recommendation 2>"
+    "<recommendation 1>"
   ],
-  "applicable_regulations": ["<reg1>", "<reg2>"],
+  "preventive_recommendation": "<ONE specific actionable recommendation, 1-2 sentences, to prevent similar complaints>",
+  "applicable_regulations": ["<primary reg>"],
   "estimated_resolution_days": <integer>,
-  "reasoning": "<brief explanation of resolution approach>"
+  "reasoning": "<one sentence>"
 }}"""
 
 # ──────────────────────────────────────────────

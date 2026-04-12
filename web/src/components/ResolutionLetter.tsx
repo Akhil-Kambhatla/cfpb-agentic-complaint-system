@@ -161,6 +161,10 @@ export default function ResolutionLetter({ letter }: Props) {
               style={{ overflow: "hidden" }}
             >
               <div style={{ borderTop: "1px solid #f3f4f6", padding: "0 16px 16px" }}>
+                {/* Demo note */}
+                <p style={{ fontSize: 11, color: "#6b7280", fontStyle: "italic", margin: "10px 0 0", lineHeight: 1.5 }}>
+                  This is a condensed version generated for demonstration. Production letters would include full case details, consumer-specific information, and regulatory compliance language.
+                </p>
                 {/* Action buttons */}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "8px 0 4px" }}>
                   <button

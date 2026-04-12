@@ -68,7 +68,7 @@ class QualityCheckAgent:
             estimated_resolution_days=resolution.estimated_resolution_days,
         )
         try:
-            data = ask_claude_json(prompt, system=QUALITY_CHECK_SYSTEM)
+            data = ask_claude_json(prompt, system=QUALITY_CHECK_SYSTEM, agent_name="quality_check")
             for key, default in _DEFAULTS.items():
                 data.setdefault(key, default)
             if not isinstance(data.get("consistency_issues"), list):

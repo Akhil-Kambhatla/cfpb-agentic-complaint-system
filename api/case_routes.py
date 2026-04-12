@@ -19,6 +19,24 @@ from src.data.database import (
     get_case_tasks,
 )
 
+
+def compute_case_status(case_id: int, current_status: str) -> str:
+    """Determine what status a case SHOULD be in based on its task states."""
+    # Never revert from terminal states
+    if current_status in ("closed", "awaiting_response"):
+        return current_status
+
+    tasks = get_case_tasks(case_id)
+    human_tasks = [t for t in tasks if t.get("task_type") == "human"]
+    completed_human = [t for t in human_tasks if t.get("status") == "completed"]
+
+    if len(human_tasks) > 0 and len(completed_human) == len(human_tasks):
+        return "action_taken"
+    elif len(completed_human) > 0:
+        return "in_progress"
+    else:
+        return current_status  # keep open or whatever it was
+
 logger = logging.getLogger(__name__)
 case_router = APIRouter()
 
@@ -119,6 +137,27 @@ async def get_case_detail(case_number: str):
     return case
 
 
+@case_router.get("/cases/{case_number}/full-result")
+async def get_case_full_result(case_number: str):
+    """Return the stored full pipeline result JSON for a case (for View Full Analysis)."""
+    import json as _json
+
+    case = get_case_by_number(case_number)
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Case {case_number} not found")
+
+    full_result_raw = case.get("full_result_json")
+    if not full_result_raw:
+        raise HTTPException(status_code=404, detail=f"No stored result for case {case_number}")
+
+    try:
+        full_result = _json.loads(full_result_raw)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to parse stored result")
+
+    return full_result
+
+
 @case_router.post("/cases/{case_number}/start")
 async def start_case(case_number: str):
     """Human picks up case — move from open to in_progress."""
@@ -168,7 +207,31 @@ async def complete_task(case_number: str, task_id: int, req: CompleteTaskRequest
         "info",
     )
 
-    return {"status": "completed", "task_id": task_id, "case_number": case_number}
+    # Auto-advance case status based on task completion state (FIX 2)
+    current_status = case.get("status", "open")
+    new_status = compute_case_status(case_id, current_status)
+    if new_status != current_status:
+        update_case_status(case_id, new_status)
+        save_activity(
+            "process",
+            f"[CASE] Case {case_number} auto-advanced to '{new_status}' after task completion",
+            None,
+            "info",
+        )
+        # Send progress email when all human tasks completed (action_taken)
+        if new_status == "action_taken":
+            try:
+                from src.utils.email_sender import send_progress_email
+                send_progress_email({"case_number": case_number, "product": case.get("product", "")})
+            except Exception as _e:
+                logger.warning("Progress email failed for %s: %s", case_number, _e)
+
+    return {
+        "status": "completed",
+        "task_id": task_id,
+        "case_number": case_number,
+        "case_status": new_status,
+    }
 
 
 @case_router.post("/cases/{case_number}/resolve")

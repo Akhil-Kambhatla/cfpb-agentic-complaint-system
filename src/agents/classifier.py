@@ -3,12 +3,13 @@ import logging
 
 from src.models.schemas import ClassificationOutput, ComplaintInput
 from src.utils.llm import ask_claude_json
+from src.utils.product_mapping import canonicalize_product
 from src.utils.prompts import CLASSIFIER_SYSTEM, CLASSIFIER_USER_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
 _DEFAULTS = {
-    "predicted_product": "Credit reporting or other personal consumer reports",
+    "predicted_product": "Credit Reporting",
     "predicted_sub_product": None,
     "predicted_issue": "Other features, terms, or problems",
     "predicted_sub_issue": None,
@@ -39,6 +40,9 @@ class ClassifierAgent:
                 ):
                     if key not in ("predicted_sub_product", "predicted_sub_issue"):
                         data.setdefault(key, default)
+            # Canonicalize the product name to ensure consistent downstream lookups
+            if data.get("predicted_product"):
+                data["predicted_product"] = canonicalize_product(data["predicted_product"])
             return ClassificationOutput(**data)
         except Exception as exc:
             logger.error(f"ClassifierAgent failed for complaint {complaint.complaint_id}: {exc}")

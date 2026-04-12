@@ -16,7 +16,13 @@ def _row_to_dict(row) -> dict:
 
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    conn = sqlite3.connect(
+        str(DB_PATH),
+        check_same_thread=False,
+        timeout=30,  # wait up to 30 s if the file is locked
+    )
+    conn.execute("PRAGMA journal_mode=WAL")   # allow concurrent readers during writes
+    conn.execute("PRAGMA busy_timeout=30000") # SQLite-level 30 s busy-wait
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -178,6 +184,20 @@ def init_db() -> None:
             )
         conn.commit()
         logger.info("Database initialized at %s", DB_PATH)
+
+        # Apply schema migrations for new columns (idempotent)
+        migrations = [
+            "ALTER TABLE cases ADD COLUMN predicted_satisfaction_score REAL",
+            "ALTER TABLE cases ADD COLUMN preventive_recommendation TEXT",
+            "ALTER TABLE cases ADD COLUMN source TEXT",
+            "ALTER TABLE detected_patterns ADD COLUMN recommendation TEXT",
+        ]
+        for sql in migrations:
+            try:
+                conn.execute(sql)
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
     finally:
         conn.close()
 
@@ -290,6 +310,31 @@ def get_existing_cluster(company: str, product: str) -> Optional[dict]:
             (company, product),
         ).fetchone()
         return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_processed_complaint_ids() -> set:
+    """Get all CFPB complaint IDs we've already processed (for deduplication)."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT complaint_id FROM processed_complaints WHERE complaint_id IS NOT NULL"
+        ).fetchall()
+        return {row[0] for row in rows if row[0]}
+    finally:
+        conn.close()
+
+
+def update_pattern_recommendation(pattern_id: int, recommendation: str) -> None:
+    """Store a generated preventive recommendation for a complaint cluster."""
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE detected_patterns SET recommendation = ? WHERE id = ?",
+            (recommendation, pattern_id),
+        )
+        conn.commit()
     finally:
         conn.close()
 
@@ -587,9 +632,16 @@ def create_case(complaint_data: dict, pipeline_result: dict) -> dict:
     risk = pipeline_result.get("risk_analysis", {})
     routing = pipeline_result.get("routing", {})
     quality = pipeline_result.get("quality_check", {})
+    resolution = pipeline_result.get("resolution", {})
     complaint = pipeline_result.get("complaint", {})
 
     narrative = complaint_data.get("narrative", "") or complaint.get("narrative", "")
+    # Extract predicted satisfaction score if available
+    predicted_sat = pipeline_result.get("predicted_satisfaction")
+    sat_score = predicted_sat.get("predicted_score") if isinstance(predicted_sat, dict) else None
+    # Extract single preventive recommendation from resolution
+    prev_rec = resolution.get("preventive_recommendation") if resolution else None
+
     conn = _get_conn()
     try:
         cursor = conn.execute(
@@ -598,8 +650,9 @@ def create_case(complaint_data: dict, pipeline_result: dict) -> dict:
                 case_number, complaint_id, status, product, issue, severity, priority,
                 assigned_team, company, state, narrative_preview,
                 resolution_probability, risk_gap, overall_confidence,
-                auto_processed, full_result_json
-            ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                auto_processed, full_result_json,
+                predicted_satisfaction_score, preventive_recommendation, source
+            ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 case_number,
@@ -617,6 +670,9 @@ def create_case(complaint_data: dict, pipeline_result: dict) -> dict:
                 quality.get("overall_confidence", 0.0),
                 1 if complaint_data.get("auto_processed") else 0,
                 json.dumps(pipeline_result),
+                sat_score,
+                prev_rec,
+                complaint_data.get("source", "manual"),
             ),
         )
         conn.commit()

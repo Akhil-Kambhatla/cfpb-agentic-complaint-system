@@ -12,8 +12,8 @@ _scheduler = None
 _scheduler_lock = threading.Lock()
 _start_time: Optional[datetime] = None
 
-# Auto-close awaiting_response cases after 5 minutes (compressed timeline)
-_AUTO_CLOSE_MINUTES = 5
+# Auto-close awaiting_response cases after 10 minutes (gives demo time to rate)
+_AUTO_CLOSE_MINUTES = 10
 
 
 def _auto_close_awaiting_cases() -> None:
@@ -21,6 +21,11 @@ def _auto_close_awaiting_cases() -> None:
     from src.data.database import _get_conn, save_activity
 
     cutoff = (datetime.utcnow() - timedelta(minutes=_AUTO_CLOSE_MINUTES)).isoformat()
+    closed_cases: list[str] = []
+
+    # Phase 1: write all updates and commit, then release the connection.
+    # Do NOT call save_activity while the write transaction is open — that opens a
+    # second connection and races for the write lock (database locked error).
     conn = _get_conn()
     try:
         rows = conn.execute(
@@ -33,22 +38,32 @@ def _auto_close_awaiting_cases() -> None:
         for row in rows:
             case_id = row["id"]
             case_number = row["case_number"]
-            conn.execute(
+            # Guard: only close if still awaiting_response (prevents double-close races)
+            affected = conn.execute(
                 """UPDATE cases SET status = 'closed', closed_at = CURRENT_TIMESTAMP,
-                   updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+                   updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ? AND status = 'awaiting_response'""",
                 (case_id,),
-            )
-            logger.info("[SCHEDULER] Case %s auto-closed. No dispute received.", case_number)
-            save_activity(
-                "process",
-                f"[CASE] Case {case_number} auto-closed. No dispute received.",
-                None, "info",
-            )
+            ).rowcount
+            if affected:
+                closed_cases.append(case_number)
+                logger.info("[SCHEDULER] Case %s auto-closed. No dispute received.", case_number)
         conn.commit()
     except Exception as exc:
         logger.error("[SCHEDULER] Auto-close check failed: %s", exc)
     finally:
         conn.close()
+
+    # Phase 2: log activities after the write connection is fully closed.
+    for case_number in closed_cases:
+        try:
+            save_activity(
+                "process",
+                f"[CASE] Case {case_number} auto-closed — no dispute received within review period.",
+                None, "info",
+            )
+        except Exception as exc:
+            logger.error("[SCHEDULER] Failed to log auto-close activity for %s: %s", case_number, exc)
 
 
 def _check_overdue_and_scheduled() -> None:
@@ -62,31 +77,50 @@ def _check_overdue_and_scheduled() -> None:
 
 
 def _poll_and_process() -> None:
-    """Fetch new complaints from CFPB and process them autonomously."""
-    from src.data.cfpb_poller import fetch_new_since_last_poll
+    """Fetch new complaints from CFPB (narrative + structured-only) and process them."""
+    from src.data.cfpb_poller import fetch_new_since_last_poll, fetch_structured_only_complaints
     from src.agents.autonomous_engine import process_batch_autonomously
 
     logger.info("[SCHEDULER] Triggering scheduled CFPB poll")
     save_activity("poll", "[POLL] Scheduled poll started", None, "info")
 
     try:
-        complaints = fetch_new_since_last_poll()
+        narrative_complaints = fetch_new_since_last_poll()
     except Exception as exc:
         logger.error("[SCHEDULER] Poll failed: %s", exc)
         save_activity("error", f"[ERROR] CFPB poll failed: {exc}", None, "critical")
         return
 
-    if not complaints:
+    # Also fetch structured-only complaints (no narrative)
+    structured_complaints: list = []
+    try:
+        structured_complaints = fetch_structured_only_complaints(max_results=5)
+    except Exception as exc:
+        logger.warning("[SCHEDULER] Structured-only fetch failed: %s", exc)
+
+    all_complaints = narrative_complaints + structured_complaints
+
+    if not all_complaints:
         save_activity("poll", "[POLL] No new complaints found — system up to date", None, "info")
         return
 
+    n_narrative = len(narrative_complaints)
+    n_structured = len(structured_complaints)
+    save_activity(
+        "poll",
+        f"[POLL] Found {n_narrative} complaints with narratives and "
+        f"{n_structured} structured-only complaints. Processing all {len(all_complaints)}.",
+        None,
+        "info",
+    )
+
     try:
-        summary = process_batch_autonomously(complaints)
+        summary = process_batch_autonomously(all_complaints)
         save_activity(
             "poll",
-            f"[POLL] Polled CFPB API. Found {len(complaints)} new complaints. "
-            f"Processed {summary['total']}. Escalated {summary['escalated']}. "
-            f"Held {summary['held']}.",
+            f"[POLL] Polled CFPB API. Processed {summary['total']} complaints "
+            f"({n_narrative} narrative, {n_structured} structured). "
+            f"Escalated {summary['escalated']}. Held {summary['held']}.",
             None,
             "info",
             summary,

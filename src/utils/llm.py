@@ -16,7 +16,7 @@ _DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
 _HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
 # Agents that use the faster, cheaper Haiku model
-_FAST_AGENTS = {"classifier", "router"}
+_FAST_AGENTS = {"classifier", "router", "quality_check"}
 
 _client: Optional[anthropic.Anthropic] = None
 
@@ -28,8 +28,11 @@ def get_model_for_agent(agent_name: str) -> str:
     Complex reasoning agents use Sonnet.
     """
     if agent_name.lower() in _FAST_AGENTS:
-        return _HAIKU_MODEL
-    return _DEFAULT_MODEL
+        model = _HAIKU_MODEL
+    else:
+        model = _DEFAULT_MODEL
+    print(f"[MODEL] Agent '{agent_name}' using: {model}")
+    return model
 
 
 def get_client() -> anthropic.Anthropic:
@@ -56,6 +59,7 @@ def ask_claude(
     resp = client.messages.create(
         model=model,
         max_tokens=max_tokens,
+        temperature=0,
         system=system,
         messages=[{"role": "user", "content": prompt}],
     )

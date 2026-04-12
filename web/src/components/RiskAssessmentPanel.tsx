@@ -1,15 +1,18 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { useEffect, useState } from "react";
 import type { RiskAnalysisOutput } from "@/types";
 import InfoTooltip from "./InfoTooltip";
 
+const DATASET_AVG_PCT = 36.9; // from dataset_stats.json (100K complaints)
+
 const PANEL_TOOLTIPS = {
-  resolutionProb: "Will this complaint get resolved? Predicted by our Bayesian model trained on 10,000 real CFPB outcomes. The percentage is the most likely outcome. The '95% CI' range means we're 95% confident the true probability falls within those bounds. Wider range = more uncertainty.",
+  resolutionProb: "Will this complaint get resolved? Predicted by our Bayesian model trained on 100,000 real CFPB outcomes. The percentage is the most likely outcome. The '95% CI' range means we're 95% confident the true probability falls within those bounds. Wider range = more uncertainty.",
   riskGap: "The danger zone metric. Regulatory Risk minus Resolution Probability. Example: 74% regulatory risk but only 9% chance of resolution = 65-point gap. This means the company will almost certainly dismiss this complaint, but doing so carries high regulatory risk. Gap > 20% triggers an automatic Slack alert to the oversight channel.",
-  companyIntel: "How does this company compare? We looked at all complaints against this company in our 10K-complaint dataset and calculated what percentage got meaningful resolution. The blue bar shows their rate vs. the dataset average (40.4% across our 10,000 complaints). Companies below average are more likely to dismiss valid complaints.",
+  companyIntel: `How does this company compare? We looked at all complaints against this company in our 100,000-complaint CFPB dataset and calculated what percentage got meaningful resolution. The blue bar shows their rate vs. the dataset average (${DATASET_AVG_PCT}% across our 100,000 complaints). If the company is not in our dataset, the system uses the dataset average for predictions.`,
   intervention: "What if the complaint were stronger? We re-run our Bayesian model pretending the complaint cited specific regulations, then compare the new probability to the original. The difference shows how much citing regulations could improve the consumer's chances. Note: this is a statistical estimate, not a guarantee.",
-  featureEffects: "What actually matters? Our Bayesian model learned that product type drives 92% of the prediction. Everything else — dollar amounts, legal citations, narrative length — makes almost no difference. This means the system is structured around products, not individual complaint quality.",
+  featureEffects: "What actually matters? Our Bayesian model learned that product type is far more influential than any other signal. Everything else — dollar amounts, legal citations, narrative length — makes much less difference. This means the system is structured around products, not individual complaint quality.",
 };
 
 interface Props {
@@ -186,43 +189,83 @@ function RiskGapBar({ riskGap, regulatoryRisk, resolutionProb }: {
         />
       </div>
 
-      {isPositiveGap && (
+      {isPositiveGap && riskGap > 0.20 && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.6 }}
           style={{
             marginTop: 8, padding: "6px 10px", borderRadius: 8,
-            background: "#fff7ed", border: "1px solid #fdba74",
+            background: riskGap > 0.30 ? "#fff1f2" : "#fff7ed",
+            border: `1px solid ${riskGap > 0.30 ? "#fca5a5" : "#fdba74"}`,
           }}
         >
-          <span style={{ fontSize: 11, color: "#c2410c", fontWeight: 600 }}>
-            [ALERT] Gap: {gapPct} percentage points below baseline — underperforming
+          <span style={{ fontSize: 11, color: riskGap > 0.30 ? "#b91c1c" : "#c2410c", fontWeight: 600 }}>
+            [{riskGap > 0.30 ? "CRITICAL" : "ELEVATED"}] Gap: {gapPct} pp below baseline
           </span>
         </motion.div>
+      )}
+      {isPositiveGap && riskGap > 0.10 && riskGap <= 0.20 && (
+        <p style={{ fontSize: 10, color: "#92400e", marginTop: 6 }}>
+          Moderate gap: {gapPct} pp below baseline — standard monitoring applies.
+        </p>
       )}
     </div>
   );
 }
 
-/// ─── Feature Effects: dominant donut + bars ───────────────────────────────────
+// ─── Feature Effects: dynamic from API ───────────────────────────────────────
+interface FeatureCoefficient {
+  name: string;
+  coefficient: number;
+  positive: boolean;
+}
+
+interface BayesianCoefficients {
+  coefficients: FeatureCoefficient[];
+  product_dominance_ratio: number;
+  overall_resolution_rate: number;
+  training_samples: number;
+}
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function FeatureEffects({ features: _features }: { features: [string, number][] }) {
-  // Fixed Bayesian posterior coefficients (hardcoded from Bayesian regression results)
-  const FEATURE_COEFFICIENTS: [string, number, boolean][] = [
-    ["Product Type", 0.713, true],
-    ["Dollar Amount", 0.053, true],
-    ["Regulation Mention", 0.041, false],
-    ["Attorney Mention", 0.007, false],
-    ["Narrative Length", 0.002, false],
+  const [bayesianData, setBayesianData] = useState<BayesianCoefficients | null>(null);
+
+  useEffect(() => {
+    fetch(`${BASE_URL}/api/bayesian-coefficients`)
+      .then((r) => r.json())
+      .then((d) => setBayesianData(d))
+      .catch(() => {});
+  }, []);
+
+  // Fallback coefficients from actual model (bayesian_results.json)
+  const FALLBACK_COEFFICIENTS: FeatureCoefficient[] = [
+    { name: "Product Type", coefficient: 0.5815, positive: true },
+    { name: "Dollar Amount", coefficient: 0.0699, positive: true },
+    { name: "Attorney Mention", coefficient: 0.0463, positive: false },
+    { name: "Regulation Mention", coefficient: 0.0135, positive: true },
+    { name: "Narrative Length", coefficient: 0.0162, positive: false },
   ];
 
-  // SVG donut for 92% vs 8%
+  const coefficients = bayesianData?.coefficients ?? FALLBACK_COEFFICIENTS;
+  const ratio = bayesianData?.product_dominance_ratio ?? 13;
+
+  const maxCoef = coefficients[0]?.coefficient ?? 1;
+
+  // Compute product share of total coefficient magnitude
+  const totalMag = coefficients.reduce((s, c) => s + c.coefficient, 0);
+  const productMag = coefficients.find((c) => c.name === "Product Type")?.coefficient ?? maxCoef;
+  const productSharePct = totalMag > 0 ? Math.round((productMag / totalMag) * 100) : 85;
+  const otherSharePct = 100 - productSharePct;
+
   const R = 36;
   const CX = 44;
   const CY = 44;
   const circumference = 2 * Math.PI * R;
-  const productShare = 0.92;
+  const productShare = productSharePct / 100;
   const productArc = circumference * productShare;
 
   return (
@@ -230,17 +273,14 @@ function FeatureEffects({ features: _features }: { features: [string, number][] 
       {/* Donut chart */}
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <svg width={CX * 2} height={CY * 2} viewBox={`0 0 ${CX * 2} ${CY * 2}`}>
-          {/* Background ring */}
           <circle cx={CX} cy={CY} r={R} fill="none" stroke="#f3f4f6" strokeWidth={10} />
-          {/* Other features (gray, 8%) */}
           <circle
             cx={CX} cy={CY} r={R} fill="none" stroke="#d1d5db" strokeWidth={10}
-            strokeDasharray={`${circumference * 0.08} ${circumference}`}
+            strokeDasharray={`${circumference * (otherSharePct / 100)} ${circumference}`}
             strokeDashoffset={-(circumference * productShare)}
             strokeLinecap="round"
             style={{ transformOrigin: `${CX}px ${CY}px`, transform: "rotate(-90deg)" }}
           />
-          {/* Product type (green, 92%) */}
           <motion.circle
             cx={CX} cy={CY} r={R} fill="none" stroke="#10b981" strokeWidth={10}
             strokeDasharray={`${productArc} ${circumference}`}
@@ -250,22 +290,21 @@ function FeatureEffects({ features: _features }: { features: [string, number][] 
             transition={{ duration: 1.0, ease: "easeOut" }}
             style={{ transformOrigin: `${CX}px ${CY}px`, transform: "rotate(-90deg)" }}
           />
-          <text x={CX} y={CY - 4} textAnchor="middle" fontSize="13" fontWeight="800" fill="#059669">92%</text>
+          <text x={CX} y={CY - 4} textAnchor="middle" fontSize="13" fontWeight="800" fill="#059669">{productSharePct}%</text>
           <text x={CX} y={CY + 10} textAnchor="middle" fontSize="8" fill="#6b7280">product</text>
         </svg>
         <div style={{ flex: 1 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "#059669", margin: "0 0 2px" }}>Product type drives 92%</p>
-          <p style={{ fontSize: 10, color: "#6b7280", margin: 0, lineHeight: 1.4 }}>All other features combined: 8%</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "#059669", margin: "0 0 2px" }}>Product type drives {productSharePct}%</p>
+          <p style={{ fontSize: 10, color: "#6b7280", margin: 0, lineHeight: 1.4 }}>All other features combined: {otherSharePct}%</p>
         </div>
       </div>
 
       {/* Coefficient bars */}
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {FEATURE_COEFFICIENTS.map(([name, coef, positive]) => {
-          const maxCoef = 0.713;
-          const widthPct = (coef / maxCoef) * 95;
+        {coefficients.map(({ name, coefficient, positive }) => {
+          const widthPct = maxCoef > 0 ? (coefficient / maxCoef) * 95 : 0;
           const barColor = name === "Product Type" ? "#10b981" : "#d1d5db";
-          const coefLabel = positive ? `+${coef.toFixed(3)}` : `−${coef.toFixed(3)}`;
+          const coefLabel = positive ? `+${coefficient.toFixed(3)}` : `−${coefficient.toFixed(3)}`;
           return (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 9, color: name === "Product Type" ? "#059669" : "#6b7280", width: 90, flexShrink: 0, fontWeight: name === "Product Type" ? 700 : 400 }}>
@@ -287,7 +326,7 @@ function FeatureEffects({ features: _features }: { features: [string, number][] 
         })}
       </div>
       <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 2, lineHeight: 1.4 }}>
-        Product type is 130× more influential than mentioning a lawyer, and 350× more influential than narrative length.
+        Product type is {ratio}× more influential than mentioning a lawyer.
       </p>
     </div>
   );
@@ -413,56 +452,91 @@ export default function RiskAssessmentPanel({ riskAnalysis, company }: Props) {
             </p>
             <InfoTooltip text={PANEL_TOOLTIPS.companyIntel} />
           </div>
-          {company && <p style={{ fontSize: 12, fontWeight: 700, color: "#111827", marginBottom: 10 }}>{company}</p>}
-          {hasCompanyData ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 10, color: "#4b5563" }}>Company rate</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{companyRate}%</span>
+
+          {/* State 1: company mentioned AND found in dataset */}
+          {company && hasCompanyData && (
+            <>
+              <p style={{ fontSize: 12, fontWeight: 700, color: "#111827", marginBottom: 10 }}>{company}</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, color: "#4b5563" }}>Company rate</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{companyRate}%</span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6", overflow: "hidden" }}>
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.max(companyRate ?? 0, 0.5)}%` }}
+                      transition={{ duration: 0.8 }}
+                      style={{ height: "100%", background: "#0ea5e9" }}
+                    />
+                  </div>
                 </div>
-                <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6" }}>
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${companyRate}%` }}
-                    transition={{ duration: 0.8 }}
-                    style={{ height: "100%", borderRadius: 3, background: "#0ea5e9" }}
-                  />
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, color: "#4b5563" }}>Dataset avg</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{DATASET_AVG_PCT}%</span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6", overflow: "hidden" }}>
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${DATASET_AVG_PCT}%` }}
+                      transition={{ duration: 0.8, delay: 0.1 }}
+                      style={{ height: "100%", background: "#d1d5db" }}
+                    />
+                  </div>
                 </div>
               </div>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 10, color: "#4b5563" }}>Dataset avg</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{industryRate}%</span>
-                </div>
-                <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6" }}>
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${industryRate}%` }}
-                    transition={{ duration: 0.8, delay: 0.1 }}
-                    style={{ height: "100%", borderRadius: 3, background: "#d1d5db" }}
-                  />
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div>
+            </>
+          )}
+
+          {/* State 2: company mentioned but NOT found */}
+          {company && !hasCompanyData && (
+            <>
+              <p style={{ fontSize: 12, fontWeight: 700, color: "#111827", marginBottom: 6 }}>&ldquo;{company}&rdquo;</p>
+              <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 8px", lineHeight: 1.5 }}>
+                Company not found in our 100,000-complaint dataset.
+              </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                 <span style={{ fontSize: 10, color: "#4b5563" }}>Dataset avg</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{industryRate}%</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{DATASET_AVG_PCT}%</span>
               </div>
-              <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6" }}>
+              <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6", overflow: "hidden" }}>
                 <motion.div
                   initial={{ width: 0 }}
-                  animate={{ width: `${industryRate}%` }}
+                  animate={{ width: `${DATASET_AVG_PCT}%` }}
                   transition={{ duration: 0.8 }}
-                  style={{ height: "100%", borderRadius: 3, background: "#d1d5db" }}
+                  style={{ height: "100%", background: "#d1d5db" }}
                 />
               </div>
-              <p style={{ fontSize: 10, color: "#9ca3af", marginTop: 8 }}>
-                No company-specific history available
+              <p style={{ fontSize: 10, color: "#9ca3af", marginTop: 6 }}>
+                Using dataset average for risk assessment.
               </p>
-            </div>
+            </>
+          )}
+
+          {/* State 3: no company specified */}
+          {!company && (
+            <>
+              <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 8px", lineHeight: 1.5 }}>
+                No company specified in complaint.
+              </p>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontSize: 10, color: "#4b5563" }}>Dataset avg</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{DATASET_AVG_PCT}%</span>
+              </div>
+              <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6", overflow: "hidden" }}>
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${DATASET_AVG_PCT}%` }}
+                  transition={{ duration: 0.8 }}
+                  style={{ height: "100%", background: "#d1d5db" }}
+                />
+              </div>
+              <p style={{ fontSize: 10, color: "#9ca3af", marginTop: 6 }}>
+                Using dataset average for risk assessment.
+              </p>
+            </>
           )}
         </motion.div>
 

@@ -198,3 +198,32 @@ def send_resolution_email(case_data: dict, response_letter: str) -> bool:
     sent = _send_email(subject, html)
     _save_sent_email("resolution", subject, case_number)
     return sent
+
+
+def send_progress_email(case_data: dict) -> bool:
+    """Send a progress update when all human tasks have been completed."""
+    case_number = case_data.get("case_number", "")
+    product = case_data.get("product", "Financial Product")
+
+    header = """
+    <div style="background:#2563eb;padding:20px 24px;">
+      <h2 style="color:#fff;margin:0;font-size:18px;">CFPB Complaint Intelligence System — Progress Update</h2>
+    </div>
+    """
+    body = f"""
+    <p style="font-size:14px;color:#111827;margin-bottom:16px;">
+      All required actions for your case <strong>{case_number}</strong> have been completed.
+    </p>
+    <p style="font-size:14px;color:#374151;">
+      Product: <strong>{product}</strong><br>
+      Status: <strong>All tasks complete — final review in progress</strong>
+    </p>
+    <p style="font-size:13px;color:#6b7280;margin-top:16px;">
+      You will receive a resolution email shortly with detailed findings and next steps.
+    </p>
+    """
+    html = _wrap(body, header)
+    subject = f"Progress Update — {case_number} — Actions Complete"
+    sent = _send_email(subject, html)
+    _save_sent_email("progress", subject, case_number)
+    return sent

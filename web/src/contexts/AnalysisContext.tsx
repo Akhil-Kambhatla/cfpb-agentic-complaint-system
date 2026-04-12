@@ -11,6 +11,7 @@ import type {
   RoutingOutput,
   ResolutionOutput,
   QualityCheckOutput,
+  SatisfactionPrediction,
 } from "@/types";
 
 export interface LogEntry {
@@ -53,6 +54,7 @@ interface AnalysisContextType {
   routing: RoutingOutput | null;
   resolution: ResolutionOutput | null;
   qualityCheck: QualityCheckOutput | null;
+  predictedSatisfaction: SatisfactionPrediction | null;
 
   totalTime: number | null;
   slackAlertSent: boolean | null;
@@ -61,6 +63,7 @@ interface AnalysisContextType {
 
   handleAnalyze: () => Promise<void>;
   resetAnalysis: () => void;
+  restoreFromSession: () => boolean;
 }
 
 const AnalysisContext = createContext<AnalysisContextType | null>(null);
@@ -135,6 +138,67 @@ function completeMsg(agent: string, result: unknown, elapsed?: number): string {
   }
 }
 
+// ─── sessionStorage helpers ────────────────────────────────────────────────────
+
+const SS_RESULTS_KEY = "analyzeResults";
+const SS_NARRATIVE_KEY = "analyzeNarrative";
+const SS_COMPANY_KEY = "analyzeCompany";
+const SS_STATE_KEY = "analyzeState";
+
+function saveResultsToSession(
+  results: {
+    classification: ClassificationOutput | null;
+    eventChain: CausalAnalysisOutput | null;
+    riskAnalysis: RiskAnalysisOutput | null;
+    routing: RoutingOutput | null;
+    resolution: ResolutionOutput | null;
+    qualityCheck: QualityCheckOutput | null;
+    caseNumber: string | null;
+  },
+  narrative: string,
+  company: string,
+  state: string
+) {
+  try {
+    sessionStorage.setItem(SS_RESULTS_KEY, JSON.stringify(results));
+    sessionStorage.setItem(SS_NARRATIVE_KEY, narrative);
+    sessionStorage.setItem(SS_COMPANY_KEY, company);
+    sessionStorage.setItem(SS_STATE_KEY, state);
+  } catch {}
+}
+
+function loadResultsFromSession() {
+  try {
+    const raw = sessionStorage.getItem(SS_RESULTS_KEY);
+    if (!raw) return null;
+    return {
+      results: JSON.parse(raw) as {
+        classification: ClassificationOutput;
+        eventChain: CausalAnalysisOutput;
+        riskAnalysis: RiskAnalysisOutput;
+        routing: RoutingOutput;
+        resolution: ResolutionOutput;
+        qualityCheck: QualityCheckOutput;
+        caseNumber: string | null;
+      },
+      narrative: sessionStorage.getItem(SS_NARRATIVE_KEY) || "",
+      company: sessionStorage.getItem(SS_COMPANY_KEY) || "",
+      state: sessionStorage.getItem(SS_STATE_KEY) || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function clearSessionResults() {
+  try {
+    sessionStorage.removeItem(SS_RESULTS_KEY);
+    sessionStorage.removeItem(SS_NARRATIVE_KEY);
+    sessionStorage.removeItem(SS_COMPANY_KEY);
+    sessionStorage.removeItem(SS_STATE_KEY);
+  } catch {}
+}
+
 export function AnalysisProvider({ children }: { children: React.ReactNode }) {
   const [narrative, setNarrative] = useState("");
   const [company, setCompany] = useState("");
@@ -155,13 +219,31 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
     useState<RiskAnalysisOutput | null>(null);
   const [routing, setRouting] = useState<RoutingOutput | null>(null);
   const [resolution, setResolution] = useState<ResolutionOutput | null>(null);
-  const [qualityCheck, setQualityCheck] = useState<QualityCheckOutput | null>(
-    null
-  );
+  const [qualityCheck, setQualityCheck] = useState<QualityCheckOutput | null>(null);
+  const [predictedSatisfaction, setPredictedSatisfaction] = useState<SatisfactionPrediction | null>(null);
   const [totalTime, setTotalTime] = useState<number | null>(null);
   const [slackAlertSent, setSlackAlertSent] = useState<boolean | null>(null);
   const [teamAlertSent, setTeamAlertSent] = useState<boolean | null>(null);
   const [caseNumber, setCaseNumber] = useState<string | null>(null);
+
+  // Restore from sessionStorage on mount (FIX 4)
+  React.useEffect(() => {
+    const saved = loadResultsFromSession();
+    if (saved && saved.results.classification) {
+      setNarrative(saved.narrative);
+      setCompany(saved.company);
+      setState(saved.state);
+      setClassification(saved.results.classification);
+      setEventChain(saved.results.eventChain);
+      setRiskAnalysis(saved.results.riskAnalysis);
+      setRouting(saved.results.routing);
+      setResolution(saved.results.resolution);
+      setQualityCheck(saved.results.qualityCheck);
+      setCaseNumber(saved.results.caseNumber);
+      setPhase("complete");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const addLog = useCallback(
     (agent: string, message: string, type: LogEntry["type"] = "info") => {
@@ -171,6 +253,7 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
   );
 
   const resetAnalysis = useCallback(() => {
+    clearSessionResults();
     setAgentStates(makeInitialStates());
     setClassification(null);
     setEventChain(null);
@@ -178,6 +261,7 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
     setRouting(null);
     setResolution(null);
     setQualityCheck(null);
+    setPredictedSatisfaction(null);
     setError(null);
     setLog([]);
     setPhase("idle");
@@ -185,6 +269,27 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
     setSlackAlertSent(null);
     setTeamAlertSent(null);
     setCaseNumber(null);
+  }, []);
+
+  const restoreFromSession = useCallback((): boolean => {
+    const saved = loadResultsFromSession();
+    if (saved && saved.results.classification) {
+      setNarrative(saved.narrative);
+      setCompany(saved.company);
+      setState(saved.state);
+      setClassification(saved.results.classification);
+      setEventChain(saved.results.eventChain);
+      setRiskAnalysis(saved.results.riskAnalysis);
+      setRouting(saved.results.routing);
+      setResolution(saved.results.resolution);
+      setQualityCheck(saved.results.qualityCheck);
+      setCaseNumber(saved.results.caseNumber);
+      setLog([]);
+      setAgentStates(makeInitialStates());
+      setPhase("complete");
+      return true;
+    }
+    return false;
   }, []);
 
   const handleAnalyze = useCallback(async () => {
@@ -202,15 +307,29 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
         const agentKey = event.agent;
 
         if (event.status === "running") {
-          setAgentStates((prev) => ({
-            ...prev,
-            [agentKey]: { status: "running" },
-          }));
-          if (agentKey !== "pipeline") {
-            addLog(agentKey, runningMsg(agentKey, narrative.length), "info");
+          if (agentKey === "risk_analyzer") {
+            // Risk Analyzer and Event Chain run in parallel — activate both at once
+            // so the animation shows them lighting up simultaneously, not sequentially.
+            setAgentStates((prev) => ({
+              ...prev,
+              risk_analyzer: { status: "running" },
+              event_chain: { status: "running" },
+            }));
+            addLog("risk_analyzer", runningMsg("risk_analyzer", narrative.length), "info");
+            addLog("event_chain", runningMsg("event_chain", narrative.length), "info");
+          } else {
+            setAgentStates((prev) => ({
+              ...prev,
+              [agentKey]: { status: "running" },
+            }));
+            if (agentKey !== "pipeline") {
+              addLog(agentKey, runningMsg(agentKey, narrative.length), "info");
+            }
           }
         } else if (event.status === "complete") {
           if (agentKey !== "pipeline") {
+            // Backend now sends individual elapsed times for risk_analyzer and event_chain
+            // (using asyncio.as_completed so each completes independently)
             setAgentStates((prev) => ({
               ...prev,
               [agentKey]: {
@@ -248,9 +367,36 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
             const teamSent = (pipelineResult?.team_alert_sent as boolean) ?? false;
             setSlackAlertSent(slackSent);
             setTeamAlertSent(teamSent);
-            if (pipelineResult?.case_number) {
-              setCaseNumber(pipelineResult.case_number as string);
+            const newCaseNumber = (pipelineResult?.case_number as string) ?? null;
+            if (newCaseNumber) {
+              setCaseNumber(newCaseNumber);
             }
+            const sat = pipelineResult?.predicted_satisfaction as SatisfactionPrediction | null | undefined;
+            if (sat) setPredictedSatisfaction(sat);
+
+            // Persist to sessionStorage so results survive tab switches (FIX 4)
+            setClassification((cls) => {
+              setEventChain((ec) => {
+                setRiskAnalysis((ra) => {
+                  setRouting((rt) => {
+                    setResolution((res) => {
+                      setQualityCheck((qc) => {
+                        saveResultsToSession(
+                          { classification: cls, eventChain: ec, riskAnalysis: ra, routing: rt, resolution: res, qualityCheck: qc, caseNumber: newCaseNumber },
+                          narrative.trim(), company, state
+                        );
+                        return qc;
+                      });
+                      return res;
+                    });
+                    return rt;
+                  });
+                  return ra;
+                });
+                return ec;
+              });
+              return cls;
+            });
 
             const assignedTeam = ((pipelineResult?.routing as Record<string, unknown>)?.assigned_team as string) ?? "";
             if (teamSent && assignedTeam) {
@@ -294,12 +440,14 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
         routing,
         resolution,
         qualityCheck,
+        predictedSatisfaction,
         totalTime,
         slackAlertSent,
         teamAlertSent,
         caseNumber,
         handleAnalyze,
         resetAnalysis,
+        restoreFromSession,
       }}
     >
       {children}

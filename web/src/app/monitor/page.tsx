@@ -75,6 +75,7 @@ interface Pattern {
   complaint_count: number;
   time_window_hours: number;
   resolved: boolean;
+  recommendation?: string | null;
 }
 
 interface DayStats {
@@ -121,6 +122,9 @@ interface CaseSummary {
   task_total?: number;
   task_completed?: number;
   task_overdue?: number;
+  // New fields
+  predicted_satisfaction_score?: number | null;
+  source?: string;
 }
 
 interface CaseTask {
@@ -149,6 +153,8 @@ interface CaseDetail extends CaseSummary {
     overdue: number;
     completion_percentage: number;
   };
+  customer_satisfaction_score?: number | null;
+  preventive_recommendation?: string | null;
 }
 
 interface CaseStats {
@@ -455,6 +461,20 @@ function PatternCard({ pattern, onResolve }: { pattern: Pattern; onResolve: (id:
               Detected {relativeTime(pattern.detected_at)}
             </span>
           </div>
+          {pattern.recommendation && (
+            <div style={{
+              marginTop: 8, padding: "8px 10px",
+              borderRadius: 6, border: "1px solid #e0f2fe",
+              background: "#f0f9ff",
+            }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#0369a1", margin: "0 0 3px", textTransform: "uppercase" }}>
+                Preventive Recommendation
+              </p>
+              <p style={{ fontSize: 11, color: "#0c4a6e", margin: 0, lineHeight: 1.5 }}>
+                &ldquo;{pattern.recommendation}&rdquo;
+              </p>
+            </div>
+          )}
           {complaintIds.length > 0 && (
             <div style={{ marginTop: 6 }}>
               <button
@@ -465,11 +485,24 @@ function PatternCard({ pattern, onResolve }: { pattern: Pattern; onResolve: (id:
               </button>
               {showIds && (
                 <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {complaintIds.slice(0, 8).map((id) => (
-                    <span key={id} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "#f3f4f6", color: "#374151" }}>
-                      {String(id).slice(0, 8)}…
-                    </span>
-                  ))}
+                  {complaintIds.slice(0, 8).map((id) => {
+                    const label = String(id);
+                    const isCaseNum = label.startsWith("CIS-");
+                    return isCaseNum ? (
+                      <a
+                        key={id}
+                        href="#cases"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                        style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "#eff6ff", color: "#2563eb", fontWeight: 600, textDecoration: "none" }}
+                      >
+                        {label}
+                      </a>
+                    ) : (
+                      <span key={id} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "#f3f4f6", color: "#374151" }}>
+                        {label.slice(0, 8)}…
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -766,8 +799,73 @@ function TaskTimeline({
   );
 }
 
-function RiskIntelligencePanel({ caseDetail }: { caseDetail: CaseDetail }) {
+// ─── View Full Analysis button — fetches stored result, populates sessionStorage ──
+function ViewFullAnalysisButton({ caseDetail }: { caseDetail: CaseDetail }) {
   const router = useRouter();
+  const [loading, setLoading] = useState(false);
+
+  async function handleClick() {
+    if (loading) return;
+    setLoading(true);
+    const narrative = caseDetail.narrative || caseDetail.narrative_preview || "";
+
+    // Clear any old stored results first
+    sessionStorage.removeItem("analyzeResults");
+    sessionStorage.removeItem("analyzeNarrative");
+    sessionStorage.removeItem("analyzeCompany");
+    sessionStorage.removeItem("analyzeState");
+
+    try {
+      // Fetch the full stored pipeline result for this case
+      const res = await fetch(`${API}/cases/${caseDetail.case_number}/full-result`);
+      if (res.ok) {
+        const fullResult = await res.json();
+        // Map to the AnalysisContext sessionStorage format
+        const storedResults = {
+          classification: fullResult.classification || null,
+          eventChain: fullResult.event_chain || null,
+          riskAnalysis: fullResult.risk_analysis || null,
+          routing: fullResult.routing || null,
+          resolution: fullResult.resolution || null,
+          qualityCheck: fullResult.quality_check || null,
+          caseNumber: caseDetail.case_number,
+        };
+        sessionStorage.setItem("analyzeResults", JSON.stringify(storedResults));
+        sessionStorage.setItem("analyzeNarrative", narrative);
+        sessionStorage.setItem("analyzeCompany", caseDetail.company || "");
+        sessionStorage.setItem("analyzeState", caseDetail.state || "");
+      } else {
+        // Fallback: just pass the narrative so it auto-analyzes
+        sessionStorage.setItem("analyze_narrative", narrative);
+        sessionStorage.setItem("analyze_company", caseDetail.company || "");
+        sessionStorage.setItem("analyze_state", caseDetail.state || "");
+      }
+    } catch {
+      sessionStorage.setItem("analyze_narrative", narrative);
+      sessionStorage.setItem("analyze_company", caseDetail.company || "");
+      sessionStorage.setItem("analyze_state", caseDetail.state || "");
+    }
+
+    router.push("/analyze");
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={loading}
+      style={{
+        display: "block", width: "100%", marginTop: 10, fontSize: 11, color: "#2563eb",
+        fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", textAlign: "center",
+        padding: "5px 0", borderRadius: 6, border: "1px solid #bfdbfe",
+        background: "#eff6ff", opacity: loading ? 0.7 : 1,
+      }}
+    >
+      {loading ? "Loading…" : "View Full Analysis →"}
+    </button>
+  );
+}
+
+function RiskIntelligencePanel({ caseDetail }: { caseDetail: CaseDetail }) {
   const resPct = Math.round((caseDetail.resolution_probability || 0) * 100);
   const riskPct = Math.round((caseDetail.risk_gap || 0) * 100);
 
@@ -778,13 +876,17 @@ function RiskIntelligencePanel({ caseDetail }: { caseDetail: CaseDetail }) {
   const ciHigh = Math.min(100, resPct + 8);
   const regulatoryRisk = Math.round(((caseDetail.risk_gap || 0) + (caseDetail.overall_confidence || 0)) / 2 * 100);
 
+  // FIX 11: thresholds mirror generate_key_finding() in risk_analyzer.py
+  const riskGapRaw = caseDetail.risk_gap || 0;
   let keyFinding = "";
-  if (resPct < 20) {
-    keyFinding = "This product category has historically low resolution rates. Company dismissal is likely despite regulatory exposure.";
-  } else if (resPct < 50) {
-    keyFinding = "Moderate resolution probability. Outcome depends on regulatory pressure and company responsiveness.";
+  if (riskGapRaw > 0.25) {
+    keyFinding = `Immediate escalation required. Resolution probability is ${resPct}%, which is ${riskPct}% below the product baseline. Senior compliance review is warranted.`;
+  } else if (riskGapRaw > 0.15) {
+    keyFinding = `Elevated risk. Resolution probability of ${resPct}% is ${riskPct}% below the product baseline. Proactive outreach and prioritization recommended.`;
+  } else if ((caseDetail.resolution_probability || 0) < 0.25) {
+    keyFinding = `Resolution probability (${resPct}%) is significantly below the product baseline. Narrative risk factors may be driving under-performance — review complaint signals.`;
   } else {
-    keyFinding = "Good resolution probability for this complaint type. Standard remediation should achieve resolution.";
+    keyFinding = `Routine processing. Resolution probability of ${resPct}% aligns with the product baseline. Standard response procedures apply.`;
   }
 
   return (
@@ -814,25 +916,7 @@ function RiskIntelligencePanel({ caseDetail }: { caseDetail: CaseDetail }) {
           <p style={{ fontSize: 11, color: "#374151", margin: 0, lineHeight: 1.5 }}>{keyFinding}</p>
         </div>
       )}
-      <button
-        onClick={() => {
-          const narrative = caseDetail.narrative || caseDetail.narrative_preview || "";
-          if (narrative) {
-            sessionStorage.setItem("analyze_narrative", narrative);
-            sessionStorage.setItem("analyze_company", caseDetail.company || "");
-            sessionStorage.setItem("analyze_state", caseDetail.state || "");
-          }
-          router.push("/analyze");
-        }}
-        style={{
-          display: "block", width: "100%", marginTop: 10, fontSize: 11, color: "#2563eb",
-          fontWeight: 600, cursor: "pointer", textAlign: "center",
-          padding: "5px 0", borderRadius: 6, border: "1px solid #bfdbfe",
-          background: "#eff6ff",
-        }}
-      >
-        View Full Analysis →
-      </button>
+      <ViewFullAnalysisButton caseDetail={caseDetail} />
     </div>
   );
 }
@@ -857,6 +941,7 @@ function CaseSummaryCard({
   onResolve: () => void;
   completedTaskIds?: Set<number>;
 }) {
+  const [resolving, setResolving] = useState(false);
   const ts = caseDetail.task_summary;
   const humanTasks = caseDetail.tasks.filter((t) => t.task_type === "human");
   // Use completedTaskIds (optimistic set) or fall back to DB status
@@ -865,6 +950,12 @@ function CaseSummaryCard({
     return t.status === "pending" || t.status === "overdue";
   }).length;
   const allHumanDone = humanTasks.length > 0 && humanPending === 0;
+
+  async function handleResolve() {
+    if (resolving) return;
+    setResolving(true);
+    try { await onResolve(); } catch {} finally { setResolving(false); }
+  }
 
   return (
     <div style={{
@@ -944,18 +1035,20 @@ function CaseSummaryCard({
         </div>
       )}
 
-      {/* Resolve button — shown when all human tasks are done and case is in_progress */}
-      {caseDetail.status === "in_progress" && allHumanDone && (
+      {/* Resolve button — shown when all human tasks are done OR case is action_taken */}
+      {(caseDetail.status === "in_progress" || caseDetail.status === "action_taken") && allHumanDone && (
         <button
-          onClick={onResolve}
+          onClick={handleResolve}
+          disabled={resolving}
           style={{
             width: "100%", padding: "8px 12px", borderRadius: 8,
             border: "1px solid #059669", background: "#f0fdf4",
-            color: "#059669", fontSize: 12, fontWeight: 600, cursor: "pointer",
-            marginBottom: 12,
+            color: "#059669", fontSize: 12, fontWeight: 600,
+            cursor: resolving ? "not-allowed" : "pointer",
+            marginBottom: 12, opacity: resolving ? 0.7 : 1,
           }}
         >
-          ✓ Resolve Case
+          {resolving ? "Resolving…" : "✓ Resolve Case"}
         </button>
       )}
       {(caseDetail.status === "awaiting_response" || caseDetail.status === "awaiting_confirmation") && (
@@ -971,6 +1064,73 @@ function CaseSummaryCard({
 
       {/* Risk Intelligence section */}
       <RiskIntelligencePanel caseDetail={caseDetail} />
+
+      {/* Satisfaction comparison — only shown when predicted score exists */}
+      {caseDetail.predicted_satisfaction_score != null && (
+        <div style={{
+          marginTop: 12, padding: "10px 12px", background: "#f8fafc",
+          borderRadius: 8, border: "1px solid #e2e8f0",
+        }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            Customer Satisfaction
+          </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+            <span style={{ fontSize: 11, color: "#6b7280" }}>Predicted CSAT</span>
+            <span style={{
+              fontSize: 13, fontWeight: 700,
+              color: caseDetail.predicted_satisfaction_score >= 4 ? "#059669"
+                : caseDetail.predicted_satisfaction_score >= 3 ? "#d97706" : "#dc2626",
+            }}>
+              {caseDetail.predicted_satisfaction_score.toFixed(1)} / 5
+            </span>
+          </div>
+          {caseDetail.customer_satisfaction_score != null ? (() => {
+            const pred = caseDetail.predicted_satisfaction_score!;
+            const actual = caseDetail.customer_satisfaction_score;
+            const delta = actual - pred;
+            const absDelta = Math.abs(delta);
+            const deltaColor = absDelta <= 0.6 ? "#059669" : absDelta <= 1.0 ? "#d97706" : "#dc2626";
+            const deltaLabel = absDelta <= 0.6
+              ? "Prediction accurate"
+              : delta > 0
+              ? `Rated ${delta.toFixed(1)} pts higher than predicted`
+              : absDelta > 1.0
+              ? "Significant deviation — model needs calibration"
+              : `Rated ${absDelta.toFixed(1)} pts lower than predicted`;
+            return (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                  <span style={{ fontSize: 11, color: "#6b7280" }}>Actual CSAT</span>
+                  <span style={{
+                    fontSize: 13, fontWeight: 700,
+                    color: actual >= 4 ? "#059669" : actual >= 3 ? "#d97706" : "#dc2626",
+                  }}>
+                    {actual} / 5
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                  <span style={{ fontSize: 11, color: "#6b7280" }}>Delta</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: deltaColor }}>
+                    {delta >= 0 ? "+" : ""}{delta.toFixed(1)}
+                  </span>
+                </div>
+                <div style={{
+                  marginTop: 4, padding: "5px 8px", background: "#fff",
+                  borderRadius: 5, border: `1px solid ${deltaColor}40`,
+                }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: deltaColor }}>
+                    {absDelta <= 0.6 ? "✓ " : absDelta > 1.0 ? "⚠ " : "↕ "}{deltaLabel}
+                  </span>
+                </div>
+              </>
+            );
+          })() : (
+            <p style={{ fontSize: 10, color: "#9ca3af", margin: "4px 0 0", fontStyle: "italic" }}>
+              Awaiting consumer rating
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1304,20 +1464,22 @@ function KanbanCard({
   onClick: () => void;
   onStart?: (e: React.MouseEvent) => void;
 }) {
+  const [starting, setStarting] = useState(false);
   const isEscalated = c.status === "escalated" || (c as any).quality_flag === "fail" || (c.risk_gap || 0) > 0.3;
   const isDisputed  = c.case_number?.endsWith("-D");
+  const isStructured = c.source === "cfpb_api_structured" || !(c as any).narrative;
 
   const taskTotal = c.task_total ?? 0;
   const taskCompleted = c.task_completed ?? 0;
   const taskOverdue = c.task_overdue ?? 0;
   const hasOverdue = taskOverdue > 0 && (c.status === "in_progress" || c.status === "open");
 
-  // Only show badge for ESCALATED or DISPUTED
-  const showBadge = isDisputed || isEscalated;
-  const badgeLabel = isDisputed ? "DISPUTED" : "ESCALATED";
-  const badgeColor = isDisputed ? "#7c3aed" : "#dc2626";
+  // Show badge for ESCALATED, DISPUTED, or STRUCTURED
+  const showBadge = isDisputed || isEscalated || isStructured;
+  const badgeLabel = isDisputed ? "DISPUTED" : isStructured ? "STRUCTURED" : "ESCALATED";
+  const badgeColor = isDisputed ? "#7c3aed" : isStructured ? "#6b7280" : "#dc2626";
   const topBorderColor = hasOverdue ? "#f43f5e" : "transparent";
-  const leftBorderColor = isDisputed ? "#7c3aed" : isEscalated ? "#dc2626" : "#e5e7eb";
+  const leftBorderColor = isDisputed ? "#7c3aed" : isEscalated ? "#dc2626" : isStructured ? "#9ca3af" : "#e5e7eb";
 
   const col = kanbanColumn(c.status);
   const resPct = Math.round((c.resolution_probability || 0) * 100);
@@ -1406,6 +1568,21 @@ function KanbanCard({
         </span>
       </div>
 
+      {/* Predicted CSAT */}
+      {c.predicted_satisfaction_score != null && (
+        <div style={{ marginBottom: 5 }}>
+          <span style={{ fontSize: 10, color: "#6b7280" }}>
+            Pred. CSAT:{" "}
+            <strong style={{
+              color: c.predicted_satisfaction_score >= 4 ? "#059669"
+                : c.predicted_satisfaction_score >= 3 ? "#d97706" : "#dc2626",
+            }}>
+              {c.predicted_satisfaction_score.toFixed(1)}/5
+            </strong>
+          </span>
+        </div>
+      )}
+
       {/* Row 6: task progress bar */}
       {taskTotal > 0 && (
         <div style={{ marginBottom: 5 }}>
@@ -1432,14 +1609,23 @@ function KanbanCard({
       {/* Row 7: action button (status-appropriate) */}
       {col === "open" && onStart && (
         <button
-          onClick={(e) => { e.stopPropagation(); onStart(e); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (starting) return;
+            setStarting(true);
+            onStart(e);
+            setTimeout(() => setStarting(false), 3000);
+          }}
+          disabled={starting}
           style={{
             width: "100%", padding: "5px 0", marginTop: 2, borderRadius: 6,
             border: "1px solid #2563eb", background: "#eff6ff",
-            color: "#2563eb", fontSize: 11, fontWeight: 600, cursor: "pointer",
+            color: "#2563eb", fontSize: 11, fontWeight: 600,
+            cursor: starting ? "not-allowed" : "pointer",
+            opacity: starting ? 0.7 : 1,
           }}
         >
-          Start Working →
+          {starting ? "Starting…" : "Start Working →"}
         </button>
       )}
       {col === "awaiting_response" && (

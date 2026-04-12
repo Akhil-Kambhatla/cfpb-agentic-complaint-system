@@ -23,6 +23,7 @@ _DEFAULTS = {
         "We will respond within the required timeframe.\n\nSincerely,\nCompliance Team"
     ),
     "preventive_recommendations": ["Review internal procedures for compliance"],
+    "preventive_recommendation": None,
     "applicable_regulations": ["CFPA", "UDAAP"],
     "estimated_resolution_days": 30,
     "reasoning": "Resolution generation failed; defaults applied.",
@@ -68,7 +69,7 @@ class ResolutionAgent:
             regulations=", ".join(regulations),
         )
         try:
-            data = ask_claude_json(prompt, system=RESOLUTION_SYSTEM)
+            data = ask_claude_json(prompt, system=RESOLUTION_SYSTEM, max_tokens=1200, agent_name="resolution")
             for key, default in _DEFAULTS.items():
                 data.setdefault(key, default)
             if not data.get("remediation_steps"):

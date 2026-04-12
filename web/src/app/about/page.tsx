@@ -194,7 +194,7 @@ function ROICalculator() {
       </div>
 
       <p style={{ fontSize: 12, color: "#6b7280", marginTop: 16, lineHeight: 1.7 }}>
-        <strong>Important context:</strong> This is an expected-value calculation. Not every dismissed complaint triggers regulatory action — the probability per complaint is low. However, CFPB enforcement actions in 2024 ranged from $100K to over $5M per action (source: CFPB 2024 Consumer Response Annual Report). The &ldquo;$50K average regulatory impact&rdquo; is our conservative estimate that weights the low probability of enforcement against the high cost when it occurs. If the system prevents even one enforcement action per year, the ROI exceeds 70× at the corrected annual cost of ~$6,960 for 10K complaints/month.
+        <strong>Important context:</strong> This is an expected-value calculation. Not every dismissed complaint triggers regulatory action — the probability per complaint is low. However, CFPB enforcement actions in 2024 ranged from $100K to over $5M per action (source: CFPB 2024 Consumer Response Annual Report). The &ldquo;$50K average regulatory impact&rdquo; is our conservative estimate that weights the low probability of enforcement against the high cost when it occurs. If the system prevents even one enforcement action per year, the ROI exceeds 70× at the corrected annual cost of ~$6,960 for 100K complaints/month.
       </p>
       <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 8 }}>
         Cost: $0.051/complaint ($0.006 input + $0.045 output at Claude Sonnet pricing). Source: Anthropic API pricing, April 2026.
@@ -228,7 +228,7 @@ export default function AboutPage() {
   }, []);
 
   const closedPct = stats?.pct_closed_with_explanation ?? 59.8;
-  const highRiskPct = stats?.high_risk_gap_pct ?? 8.6;
+  const highRiskPct = stats?.high_risk_gap_pct ?? 12.0;
   const totalAnalyzed = stats?.total_complaints_analyzed ?? 100000;
   const bayesianSamples = stats?.bayesian_training_samples ?? 35000;
   const uniqueProducts = stats?.unique_products ?? 11;
@@ -266,7 +266,7 @@ export default function AboutPage() {
             {[
               { value: "70%", label: "Product accuracy", color: "#10b981" },
               { value: "6", label: "Specialized agents", color: "#0ea5e9" },
-              { value: "8.4s", label: "Avg pipeline latency", color: "#8b5cf6" },
+              { value: "~28s", label: "Avg pipeline latency (6 agents, 2 in parallel)", color: "#8b5cf6" },
               { value: String(uniqueProducts), label: "Product categories", color: "#f59e0b" },
             ].map(({ value, label, color }) => (
               <div key={label} style={{
@@ -457,7 +457,7 @@ export default function AboutPage() {
             </thead>
             <tbody>
               {[
-                { item: "Claude API (10,000 complaints/month @ $0.051/complaint)", monthly: "$510", annual: "$6,120" },
+                { item: "Claude API (100,000 complaints/month @ $0.051/complaint)", monthly: "$5,100", annual: "$61,200" },
                 { item: "Cloud hosting (FastAPI + Next.js)", monthly: "$50", annual: "$600" },
                 { item: "Monitoring & logging", monthly: "$20", annual: "$240" },
               ].map(({ item, monthly, annual }) => (

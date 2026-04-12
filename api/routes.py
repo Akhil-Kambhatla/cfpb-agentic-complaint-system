@@ -22,6 +22,7 @@ from src.agents.quality_check import QualityCheckAgent
 from src.agents.resolution import ResolutionAgent
 from src.agents.risk_analyzer import RiskAnalyzerAgent
 from src.agents.router import RouterAgent
+from src.utils.satisfaction_predictor import infer_resolution_type, predict_satisfaction
 from src.data.company_stats import get_all_company_names, get_company_stats, get_top_companies
 from src.models.schemas import ComplaintInput
 from src.utils.cost_calculator import estimate_cost, estimate_roi
@@ -78,14 +79,25 @@ def _run_full_pipeline(complaint: ComplaintInput) -> dict:
     resolution = ResolutionAgent().run(complaint, classification, event_chain, routing, risk)
     quality = QualityCheckAgent().run(complaint, classification, event_chain, routing, resolution, risk)
 
+    res_dict = _safe_dict(resolution)
+    satisfaction = predict_satisfaction(
+        product=classification.predicted_product,
+        severity=classification.severity,
+        resolution_probability=risk.resolution_probability,
+        risk_gap=risk.risk_gap,
+        resolution_type=infer_resolution_type(res_dict),
+        response_time_days=resolution.estimated_resolution_days,
+    )
+
     return {
         "complaint": _safe_dict(complaint),
         "classification": _safe_dict(classification),
         "event_chain": _safe_dict(event_chain),
         "risk_analysis": _safe_dict(risk),
         "routing": _safe_dict(routing),
-        "resolution": _safe_dict(resolution),
+        "resolution": res_dict,
         "quality_check": _safe_dict(quality),
+        "predicted_satisfaction": satisfaction,
     }
 
 
@@ -133,6 +145,11 @@ def _send_slack_alerts(result: dict) -> tuple[bool, bool]:
 async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, None]:
     """Run the 6-agent pipeline, yielding events after each agent completes."""
     complaint = _make_complaint(req)
+    _pipeline_start = time.time()
+
+    # Truncate narrative once for all agents (saves tokens → reduces latency)
+    if complaint.narrative and len(complaint.narrative) > 1500:
+        complaint = complaint.model_copy(update={"narrative": complaint.narrative[:1500]})
 
     async def emit(agent: str, status: str, result: dict | None = None, elapsed: float | None = None):
         payload: dict = {"agent": agent, "status": status}
@@ -150,32 +167,48 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
 
     t0 = time.time()
     classification = await loop.run_in_executor(None, lambda: ClassifierAgent().run(complaint))
-    elapsed = time.time() - t0
-    async for event in emit("classifier", "complete", _safe_dict(classification), elapsed):
+    classifier_elapsed = round(time.time() - t0, 2)
+    print(f"[PIPELINE] classifier: {classifier_elapsed}s")
+    async for event in emit("classifier", "complete", _safe_dict(classification), classifier_elapsed):
         yield event
 
-    # 2. Risk Analyzer (fast, local — runs immediately after classifier)
+    # 2+3. Risk Analyzer + Event Chain — run in PARALLEL (neither depends on the other)
+    # Emit BOTH start events before either completes so the UI shows them activating simultaneously
     async for event in emit("risk_analyzer", "running"):
         yield event
-
-    t0 = time.time()
-    risk = await loop.run_in_executor(None, lambda: RiskAnalyzerAgent().run(complaint, classification))
-    risk_elapsed = round(time.time() - t0, 2)
-    async for event in emit("risk_analyzer", "complete", _safe_dict(risk), risk_elapsed):
-        yield event
-
-    # 3. Event Chain + Router (both shown as "running" together; event chain feeds router)
     async for event in emit("event_chain", "running"):
         yield event
-    async for event in emit("router", "running"):
-        yield event
 
-    t0 = time.time()
-    event_chain = await loop.run_in_executor(
-        None, lambda: EventChainAgent().run(complaint, classification)
-    )
-    chain_elapsed = round(time.time() - t0, 2)
-    async for event in emit("event_chain", "complete", _safe_dict(event_chain), chain_elapsed):
+    # Track individual start times so each agent shows its own elapsed time
+    async def _run_named(name: str, fn):
+        t_start = time.time()
+        result = await loop.run_in_executor(None, fn)
+        return name, result, round(time.time() - t_start, 2)
+
+    risk_coro = _run_named("risk_analyzer", lambda: RiskAnalyzerAgent().run(complaint, classification))
+    event_coro = _run_named("event_chain", lambda: EventChainAgent().run(complaint, classification))
+
+    risk_result = {}
+    event_chain_result = {}
+    for coro in asyncio.as_completed([
+        asyncio.ensure_future(risk_coro),
+        asyncio.ensure_future(event_coro),
+    ]):
+        name, result, elapsed = await coro
+        print(f"[PIPELINE] {name}: {elapsed}s")
+        if name == "risk_analyzer":
+            risk = result
+            risk_result = _safe_dict(risk)
+            async for event in emit("risk_analyzer", "complete", risk_result, elapsed):
+                yield event
+        else:
+            event_chain = result
+            event_chain_result = _safe_dict(event_chain)
+            async for event in emit("event_chain", "complete", event_chain_result, elapsed):
+                yield event
+
+    # 4. Router
+    async for event in emit("router", "running"):
         yield event
 
     t0 = time.time()
@@ -183,10 +216,11 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
         None, lambda: RouterAgent().run(complaint, classification, event_chain, risk)
     )
     router_elapsed = round(time.time() - t0, 2)
+    print(f"[PIPELINE] router: {router_elapsed}s")
     async for event in emit("router", "complete", _safe_dict(routing), router_elapsed):
         yield event
 
-    # 4. Resolution
+    # 5. Resolution
     async for event in emit("resolution", "running"):
         yield event
 
@@ -194,11 +228,12 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
     resolution = await loop.run_in_executor(
         None, lambda: ResolutionAgent().run(complaint, classification, event_chain, routing, risk)
     )
-    elapsed = time.time() - t0
-    async for event in emit("resolution", "complete", _safe_dict(resolution), elapsed):
+    resolution_elapsed = round(time.time() - t0, 2)
+    print(f"[PIPELINE] resolution: {resolution_elapsed}s")
+    async for event in emit("resolution", "complete", _safe_dict(resolution), resolution_elapsed):
         yield event
 
-    # 5. Quality Check
+    # 6. Quality Check
     async for event in emit("quality_check", "running"):
         yield event
 
@@ -206,9 +241,21 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
     quality = await loop.run_in_executor(
         None, lambda: QualityCheckAgent().run(complaint, classification, event_chain, routing, resolution, risk)
     )
-    elapsed = time.time() - t0
-    async for event in emit("quality_check", "complete", _safe_dict(quality), elapsed):
+    quality_elapsed = round(time.time() - t0, 2)
+    print(f"[PIPELINE] quality_check: {quality_elapsed}s")
+    async for event in emit("quality_check", "complete", _safe_dict(quality), quality_elapsed):
         yield event
+
+    # Predicted customer satisfaction (computed after resolution is known)
+    res_dict = _safe_dict(resolution)
+    satisfaction = predict_satisfaction(
+        product=classification.predicted_product,
+        severity=classification.severity,
+        resolution_probability=risk.resolution_probability,
+        risk_gap=risk.risk_gap,
+        resolution_type=infer_resolution_type(res_dict),
+        response_time_days=resolution.estimated_resolution_days,
+    )
 
     # Send Slack alerts after all agents complete
     summary = {
@@ -260,6 +307,7 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
             "quality_check": quality_d,
             "slack_alert_sent": slack_sent,
             "team_alert_sent": team_sent,
+            "predicted_satisfaction": satisfaction,
         }
 
         save_complaint({
@@ -285,7 +333,7 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
             "slack_team_sent": 1 if team_sent else 0,
             "slack_alert_sent": 1 if slack_sent else 0,
             "email_sent": 0,
-            "processing_time_seconds": 0.0,
+            "processing_time_seconds": round(time.time() - _pipeline_start, 2),
             "full_result_json": _json.dumps(full_result_base),
         })
 
@@ -297,19 +345,45 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
             "state": complaint.state or "",
             "auto_processed": False,
         }
-        case_info = create_case(complaint_data, full_result_base)
-        case_number = case_info["case_number"]
-        case_id = case_info["id"]
+        # Check for duplicate case before creating (FIX 6)
+        narrative_prefix = complaint.narrative[:200]
+        _dup_conn = None
+        existing_case_number = None
+        try:
+            from src.data.database import _get_conn as _dbc
+            _dup_conn = _dbc()
+            _dup_row = _dup_conn.execute(
+                "SELECT case_number FROM cases WHERE narrative_preview = ? LIMIT 1",
+                (narrative_prefix,),
+            ).fetchone()
+            if _dup_row:
+                existing_case_number = _dup_row["case_number"]
+        except Exception:
+            pass
+        finally:
+            if _dup_conn:
+                _dup_conn.close()
+
+        if existing_case_number:
+            case_number = existing_case_number
+            logger.info(f"[PIPELINE] Duplicate complaint — returning existing case {case_number}")
+            case_id = None
+        else:
+            case_info = create_case(complaint_data, full_result_base)
+            case_number = case_info["case_number"]
+            case_id = case_info["id"]
 
         product = cls_d.get("predicted_product", "")
         issue = cls_d.get("predicted_issue", "")
         team = routing_d.get("assigned_team", "customer_service")
-        resolution_steps = _safe_dict(resolution).get("remediation_steps", [])
-        tasks = generate_tasks(product, issue, team, resolution_steps)
-        create_case_tasks(case_id, tasks)
 
-        # Send acknowledgment email
-        send_acknowledgment_email({"case_number": case_number, "product": product, "assigned_team": team})
+        if case_id is not None:
+            resolution_steps = _safe_dict(resolution).get("remediation_steps", [])
+            tasks = generate_tasks(product, issue, team, resolution_steps)
+            create_case_tasks(case_id, tasks)
+
+            # Send acknowledgment email only for new cases
+            send_acknowledgment_email({"case_number": case_number, "product": product, "assigned_team": team})
 
         save_activity(
             "process",
@@ -323,6 +397,8 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
     except Exception as _db_exc:
         logger.warning("DB save/case creation failed for manual complaint: %s", _db_exc)
 
+    print(f"[PIPELINE] === Total: {round(time.time() - _pipeline_start, 2)}s ===\n")
+
     # Final complete event (emitted after DB ops so case_number is available)
     full_result = {
         "complaint": _safe_dict(complaint),
@@ -335,6 +411,7 @@ async def _run_pipeline_streaming(req: AnalyzeRequest) -> AsyncGenerator[dict, N
         "slack_alert_sent": slack_sent,
         "team_alert_sent": team_sent,
         "case_number": case_number,
+        "predicted_satisfaction": satisfaction,
     }
     async for event in emit("pipeline", "complete", full_result):
         yield event
@@ -1104,6 +1181,108 @@ async def cost_estimate(
     cost = estimate_cost(complaints)
     roi = estimate_roi(complaints, avg_fine_amount=avg_fine)
     return JSONResponse(content={"cost_estimate": cost, "roi_estimate": roi})
+
+
+# ──────────────────────────────────────────────
+# Bayesian coefficients (for Feature Effects panel)
+# ──────────────────────────────────────────────
+
+_BAYESIAN_RESULTS_PATH = Path(__file__).parent.parent / "data" / "processed" / "bayesian_results.json"
+_bayesian_cache: dict | None = None
+
+
+@router.get("/bayesian-coefficients")
+async def bayesian_coefficients():
+    """Return Bayesian model coefficients from bayesian_results.json for Feature Effects panel."""
+    global _bayesian_cache
+    if _bayesian_cache is not None:
+        return JSONResponse(content=_bayesian_cache)
+    if _BAYESIAN_RESULTS_PATH.exists():
+        with open(_BAYESIAN_RESULTS_PATH) as f:
+            data = json.load(f)
+        coefs = data.get("coefficients", {})
+        overall_resolution_rate = data.get("resolution_rate", 0.369)
+        training_samples = data.get("training_samples", 35000)
+        coefficients_list = [
+            {
+                "name": "Product Type",
+                "coefficient": coefs.get("product_rate", {}).get("mean", 0.5815),
+                "positive": True,
+            },
+            {
+                "name": "Dollar Amount",
+                "coefficient": abs(coefs.get("mentions_dollar", {}).get("mean", 0.0699)),
+                "positive": coefs.get("mentions_dollar", {}).get("mean", 0) >= 0,
+            },
+            {
+                "name": "Attorney Mention",
+                "coefficient": abs(coefs.get("mentions_attorney", {}).get("mean", -0.0463)),
+                "positive": coefs.get("mentions_attorney", {}).get("mean", -1) >= 0,
+            },
+            {
+                "name": "Regulation Mention",
+                "coefficient": abs(coefs.get("mentions_regulation", {}).get("mean", 0.0135)),
+                "positive": coefs.get("mentions_regulation", {}).get("mean", 0) >= 0,
+            },
+            {
+                "name": "Narrative Length",
+                "coefficient": abs(coefs.get("narrative_length", {}).get("mean", -0.0162)),
+                "positive": coefs.get("narrative_length", {}).get("mean", 0) >= 0,
+            },
+        ]
+        # Sort descending by coefficient magnitude
+        coefficients_list.sort(key=lambda x: x["coefficient"], reverse=True)
+        # Compute ratio (product vs attorney)
+        product_coef = coefs.get("product_rate", {}).get("mean", 0.5815)
+        attorney_coef = abs(coefs.get("mentions_attorney", {}).get("mean", 0.0463))
+        ratio = round(product_coef / attorney_coef) if attorney_coef > 0 else 83
+        result = {
+            "coefficients": coefficients_list,
+            "product_dominance_ratio": ratio,
+            "overall_resolution_rate": overall_resolution_rate,
+            "training_samples": training_samples,
+        }
+        _bayesian_cache = result
+        return JSONResponse(content=result)
+    # Fallback defaults from actual model
+    return JSONResponse(content={
+        "coefficients": [
+            {"name": "Product Type", "coefficient": 0.5815, "positive": True},
+            {"name": "Dollar Amount", "coefficient": 0.0699, "positive": True},
+            {"name": "Attorney Mention", "coefficient": 0.0463, "positive": False},
+            {"name": "Regulation Mention", "coefficient": 0.0135, "positive": True},
+            {"name": "Narrative Length", "coefficient": 0.0162, "positive": False},
+        ],
+        "product_dominance_ratio": 13,
+        "overall_resolution_rate": 0.369,
+        "training_samples": 35000,
+    })
+
+
+# ──────────────────────────────────────────────
+# Average pipeline latency from DB
+# ──────────────────────────────────────────────
+
+@router.get("/stats/avg-latency")
+async def avg_latency():
+    """Return average pipeline processing time from the database."""
+    try:
+        from src.data.database import _get_conn
+        conn = _get_conn()
+        try:
+            row = conn.execute(
+                "SELECT AVG(processing_time_seconds) as avg_time, COUNT(*) as count "
+                "FROM processed_complaints WHERE processing_time_seconds > 0"
+            ).fetchone()
+            avg = row["avg_time"] if row and row["avg_time"] else None
+            count = row["count"] if row else 0
+        finally:
+            conn.close()
+        if avg and avg > 0:
+            return JSONResponse(content={"avg_seconds": round(avg, 1), "sample_count": count})
+    except Exception as exc:
+        logger.warning(f"avg-latency query failed: {exc}")
+    return JSONResponse(content={"avg_seconds": None, "sample_count": 0})
 
 
 # ──────────────────────────────────────────────

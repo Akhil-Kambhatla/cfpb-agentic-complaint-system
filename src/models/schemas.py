@@ -97,6 +97,10 @@ class RiskAnalysisOutput(BaseModel):
         ge=0.0, le=1.0,
         description="Model confidence based on posterior uncertainty"
     )
+    key_finding: str = Field(
+        default="",
+        description="Human-readable summary of the most important risk insight for this complaint"
+    )
     reasoning: str
 
 
@@ -114,6 +118,7 @@ class ResolutionOutput(BaseModel):
     remediation_steps: list[str]
     customer_response_letter: str
     preventive_recommendations: list[str]
+    preventive_recommendation: Optional[str] = None
     applicable_regulations: list[str]
     estimated_resolution_days: int
     reasoning: str
@@ -139,3 +144,4 @@ class PipelineOutput(BaseModel):
     quality_check: QualityCheckOutput
     slack_alert_sent: bool = False
     team_alert_sent: bool = False
+    predicted_satisfaction: Optional[dict] = None

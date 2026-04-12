@@ -17,7 +17,7 @@ import type { AgentState, RoutingOutput, CausalAnalysisOutput, RiskAnalysisOutpu
 
 // ─── SVG coordinate space ─────────────────────────────────────────────────────
 const VW = 1000;
-const VH = 780;
+const VH = 810;
 
 // Node sizes (SVG units)
 const NW_STD = 200;
@@ -31,15 +31,15 @@ const NH_CHAIN = 126;
 const NW_ROUTER = 268;
 const NH_ROUTER = 210;
 
-// Node centers
+// Node centers — Risk Analyzer and Event Chain are side-by-side at the same row
 const NODES = {
-  complaint_input: { cx: 500, cy: 46,  nw: NW_INPUT,  nh: NH_INPUT },
-  classifier:      { cx: 500, cy: 165, nw: NW_STD,    nh: NH_STD },
-  risk_analyzer:   { cx: 500, cy: 296, nw: NW_RISK,   nh: NH_RISK },
-  event_chain:     { cx: 192, cy: 450, nw: NW_CHAIN,  nh: NH_CHAIN },
-  router:          { cx: 808, cy: 462, nw: NW_ROUTER,  nh: NH_ROUTER },
-  resolution:      { cx: 500, cy: 618, nw: NW_STD,    nh: NH_STD },
-  quality_check:   { cx: 500, cy: 730, nw: NW_STD,    nh: NH_STD },
+  complaint_input: { cx: 500, cy: 40,  nw: NW_INPUT,  nh: NH_INPUT },
+  classifier:      { cx: 500, cy: 148, nw: NW_STD,    nh: NH_STD },
+  risk_analyzer:   { cx: 310, cy: 290, nw: NW_RISK,   nh: NH_RISK },
+  event_chain:     { cx: 690, cy: 290, nw: NW_CHAIN,  nh: NH_CHAIN },
+  router:          { cx: 500, cy: 475, nw: NW_ROUTER,  nh: NH_ROUTER },
+  resolution:      { cx: 500, cy: 645, nw: NW_STD,    nh: NH_STD },
+  quality_check:   { cx: 500, cy: 748, nw: NW_STD,    nh: NH_STD },
 } as const;
 
 type NodeKey = keyof typeof NODES;
@@ -64,9 +64,9 @@ const EDGE_DEFS = [
   },
   {
     id: "e2",
-    source: "risk_analyzer" as NodeKey,
+    source: "classifier" as NodeKey,
     target: "event_chain" as NodeKey,
-    d: `M ${cx("risk_analyzer")} ${bottom("risk_analyzer")} C ${cx("risk_analyzer")} ${(bottom("risk_analyzer")+top("event_chain"))/2} ${cx("event_chain")} ${(bottom("risk_analyzer")+top("event_chain"))/2} ${cx("event_chain")} ${top("event_chain")}`,
+    d: `M ${cx("classifier")} ${bottom("classifier")} C ${cx("classifier")} ${(bottom("classifier")+top("event_chain"))/2} ${cx("event_chain")} ${(bottom("classifier")+top("event_chain"))/2} ${cx("event_chain")} ${top("event_chain")}`,
   },
   {
     id: "e3",
@@ -77,8 +77,8 @@ const EDGE_DEFS = [
   {
     id: "e4",
     source: "event_chain" as NodeKey,
-    target: "resolution" as NodeKey,
-    d: `M ${cx("event_chain")} ${bottom("event_chain")} C ${cx("event_chain")} ${(bottom("event_chain")+top("resolution"))/2} ${cx("resolution")} ${(bottom("event_chain")+top("resolution"))/2} ${cx("resolution")} ${top("resolution")}`,
+    target: "router" as NodeKey,
+    d: `M ${cx("event_chain")} ${bottom("event_chain")} C ${cx("event_chain")} ${(bottom("event_chain")+top("router"))/2} ${cx("router")} ${(bottom("event_chain")+top("router"))/2} ${cx("router")} ${top("router")}`,
   },
   {
     id: "e5",
@@ -146,7 +146,7 @@ export default function AgentFlowDiagram({ agentStates, teamAlertSent, slackAler
       style={{
         position: "relative",
         width: "100%",
-        height: "760px",
+        height: "810px",
         borderRadius: 16,
         border: "1px solid #e5e7eb",
         background: "#f8fafc",

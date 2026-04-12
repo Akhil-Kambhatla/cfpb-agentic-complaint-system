@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -262,63 +262,124 @@ const CP_PAD  = 74;
 const CP_VW   = CP_PACK + CP_PAD * 2; // 748
 const CP_VH   = CP_PACK + CP_PAD * 2; // 748
 
-const CP_DATA: CPDatum = {
-  name: "root",
-  children: [
-    { name: "Credit reporting", value: 7599, color: "#2563eb", children: [
-      { name: "Incorrect info",        value: 3808, color: "#2563eb", parentName: "Credit reporting" },
-      { name: "Improper use",          value: 2156, color: "#2563eb", parentName: "Credit reporting" },
-      { name: "Investigation problem", value: 1527, color: "#2563eb", parentName: "Credit reporting" },
-      { name: "Other",                 value:  108, color: "#2563eb", parentName: "Credit reporting" },
-    ]},
-    { name: "Debt collection", value: 821, color: "#e11d48", children: [
-      { name: "Debt not owed",        value: 399, color: "#e11d48", parentName: "Debt collection" },
-      { name: "Written notification", value: 190, color: "#e11d48", parentName: "Debt collection" },
-      { name: "False statements",     value: 102, color: "#e11d48", parentName: "Debt collection" },
-      { name: "Other",                value: 130, color: "#e11d48", parentName: "Debt collection" },
-    ]},
-    { name: "Credit card", value: 400, color: "#f59e0b", children: [
-      { name: "Purchase problem", value: 104, color: "#f59e0b", parentName: "Credit card" },
-      { name: "Other features",   value:  63, color: "#f59e0b", parentName: "Credit card" },
-      { name: "Fees/interest",    value:  50, color: "#f59e0b", parentName: "Credit card" },
-      { name: "Other",            value: 183, color: "#f59e0b", parentName: "Credit card" },
-    ]},
-    { name: "Checking/savings", value: 378, color: "#059669", children: [
-      { name: "Managing account",  value: 199, color: "#059669", parentName: "Checking/savings" },
-      { name: "Low funds problem", value:  56, color: "#059669", parentName: "Checking/savings" },
-      { name: "Other",             value: 123, color: "#059669", parentName: "Checking/savings" },
-    ]},
-    { name: "Money transfer", value: 371, color: "#7c3aed", children: [
-      { name: "Transaction problem", value: 222, color: "#7c3aed", parentName: "Money transfer" },
-      { name: "Fraud or scam",       value:  55, color: "#7c3aed", parentName: "Money transfer" },
-      { name: "Other",               value:  94, color: "#7c3aed", parentName: "Money transfer" },
-    ]},
-    { name: "Mortgage", value: 124, color: "#0891b2", children: [
-      { name: "Payment trouble", value: 68, color: "#0891b2", parentName: "Mortgage" },
-      { name: "Servicer issues", value: 56, color: "#0891b2", parentName: "Mortgage" },
-    ]},
-    { name: "Student loan",    value: 103, color: "#4f46e5", children: [{ name: "Repayment issues",  value: 103, color: "#4f46e5", parentName: "Student loan"    }] },
-    { name: "Vehicle loan",    value:  84, color: "#0d9488", children: [{ name: "Loan issues",        value:  84, color: "#0d9488", parentName: "Vehicle loan"    }] },
-    { name: "Payday loan",     value:  56, color: "#ec4899", children: [{ name: "Loan issues",        value:  56, color: "#ec4899", parentName: "Payday loan"     }] },
-    { name: "Prepaid card",    value:  35, color: "#f97316", children: [{ name: "Card issues",        value:  35, color: "#f97316", parentName: "Prepaid card"    }] },
-    { name: "Debt management", value:  29, color: "#84cc16", children: [{ name: "Management issues",  value:  29, color: "#84cc16", parentName: "Debt management" }] },
-  ],
+const CP_API  = "http://localhost:8000/api";
+
+// Color palette keyed by canonical product name
+const CP_COLORS: Record<string, string> = {
+  "Credit Reporting": "#2563eb",
+  "Debt Collection":  "#e11d48",
+  "Mortgage":         "#0891b2",
+  "Checking/Savings": "#059669",
+  "Credit Card":      "#f59e0b",
+  "Money Transfer":   "#7c3aed",
+  "Student Loan":     "#4f46e5",
+  "Vehicle Loan":     "#0d9488",
+  "Payday Loan":      "#ec4899",
+  "Prepaid Card":     "#f97316",
+  "Debt Management":  "#84cc16",
+  "Other":            "#94a3b8",
 };
 
-const CP_TOTAL = CP_DATA.children!.reduce((s, c) => s + (c.value ?? 0), 0);
+// Approximate sub-issue proportions per canonical product (domain knowledge)
+const CP_SUB_ISSUES: Record<string, Array<{ name: string; pct: number }>> = {
+  "Credit Reporting": [
+    { name: "Incorrect info",        pct: 0.50 },
+    { name: "Improper use",          pct: 0.28 },
+    { name: "Investigation problem", pct: 0.20 },
+    { name: "Other",                 pct: 0.02 },
+  ],
+  "Debt Collection": [
+    { name: "Debt not owed",        pct: 0.49 },
+    { name: "Written notification", pct: 0.23 },
+    { name: "False statements",     pct: 0.12 },
+    { name: "Other",                pct: 0.16 },
+  ],
+  "Credit Card": [
+    { name: "Purchase problem", pct: 0.26 },
+    { name: "Other features",   pct: 0.16 },
+    { name: "Fees/interest",    pct: 0.12 },
+    { name: "Other",            pct: 0.46 },
+  ],
+  "Checking/Savings": [
+    { name: "Managing account",  pct: 0.53 },
+    { name: "Low funds problem", pct: 0.15 },
+    { name: "Other",             pct: 0.32 },
+  ],
+  "Money Transfer": [
+    { name: "Transaction problem", pct: 0.60 },
+    { name: "Fraud or scam",       pct: 0.15 },
+    { name: "Other",               pct: 0.25 },
+  ],
+  "Mortgage": [
+    { name: "Payment trouble", pct: 0.55 },
+    { name: "Servicer issues", pct: 0.45 },
+  ],
+  "Student Loan":    [{ name: "Repayment issues",   pct: 1.0 }],
+  "Vehicle Loan":    [{ name: "Loan issues",         pct: 1.0 }],
+  "Payday Loan":     [{ name: "Loan issues",         pct: 1.0 }],
+  "Prepaid Card":    [{ name: "Card issues",         pct: 1.0 }],
+  "Debt Management": [{ name: "Management issues",   pct: 1.0 }],
+};
+
+// Canonicalize raw CFPB product names → display names used in CP_COLORS
+function canonicalize(raw: string): string {
+  const k = raw.toLowerCase();
+  if (k.includes("credit report") || k.includes("personal consumer")) return "Credit Reporting";
+  if (k.includes("debt collection"))                                   return "Debt Collection";
+  if (k.includes("mortgage"))                                          return "Mortgage";
+  if (k.includes("checking") || k.includes("bank account") || k.includes("savings account")) return "Checking/Savings";
+  if (k.includes("credit card") || (k.includes("prepaid card") && !k.includes("money")))     return "Credit Card";
+  if (k.includes("money transfer") || k.includes("money service") || k.includes("virtual currency") || k === "money transfers") return "Money Transfer";
+  if (k.includes("student loan"))                                      return "Student Loan";
+  if (k.includes("vehicle loan") || k.includes("consumer loan"))      return "Vehicle Loan";
+  if (k.includes("payday") || k.includes("personal loan") || k.includes("title loan")) return "Payday Loan";
+  if (k.includes("prepaid"))                                           return "Prepaid Card";
+  if (k.includes("debt") && k.includes("manage"))                     return "Debt Management";
+  return "Other";
+}
+
+// Build a CPDatum tree from the API product_distribution object
+function buildCPData(dist: Record<string, number>): CPDatum {
+  const groups: Record<string, number> = {};
+  for (const [raw, count] of Object.entries(dist)) {
+    const canon = canonicalize(raw);
+    groups[canon] = (groups[canon] ?? 0) + count;
+  }
+
+  const children = Object.entries(groups)
+    .filter(([, count]) => count >= 30)
+    .sort(([, a], [, b]) => b - a)
+    .map(([name, count]) => {
+      const color = CP_COLORS[name] ?? CP_COLORS["Other"];
+      const subIssues = CP_SUB_ISSUES[name] ?? [{ name: "Issues", pct: 1.0 }];
+      return {
+        name,
+        value: count,
+        color,
+        children: subIssues.map((si) => ({
+          name: si.name,
+          value: Math.round(count * si.pct),
+          color,
+          parentName: name,
+        })),
+      };
+    });
+
+  return { name: "root", children };
+}
 
 // Short names used inside medium circles (r 25–40 px)
 const CP_SHORT: Record<string, string> = {
-  "Credit reporting": "Cr. Rep.",
-  "Debt collection":  "Debt Coll.",
-  "Credit card":      "Cr. Card",
-  "Checking/savings": "Checking",
-  "Money transfer":   "Money Xfer",
-  "Student loan":     "Student",
-  "Vehicle loan":     "Vehicle",
-  "Payday loan":      "Payday",
-  "Prepaid card":     "Prepaid",
-  "Debt management":  "Debt Mgmt",
+  "Credit Reporting": "Cr. Rep.",
+  "Debt Collection":  "Debt Coll.",
+  "Credit Card":      "Cr. Card",
+  "Checking/Savings": "Checking",
+  "Money Transfer":   "Money Xfer",
+  "Student Loan":     "Student",
+  "Vehicle Loan":     "Vehicle",
+  "Payday Loan":      "Payday",
+  "Prepaid Card":     "Prepaid",
+  "Debt Management":  "Debt Mgmt",
   "Mortgage":         "Mortgage",
 };
 
@@ -339,13 +400,34 @@ export function ComplaintTreemap() {
   const containerRef                  = useRef<HTMLDivElement>(null);
   const [hovered, setHovered]         = useState<CPHover | null>(null);
   const [hoveredKey, setHoveredKey]   = useState<string | null>(null);
+  const [cpData, setCpData]           = useState<CPDatum | null>(null);
+  const [cpLoading, setCpLoading]     = useState(true);
+
+  useEffect(() => {
+    fetch(`${CP_API}/dataset-stats`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.product_distribution) {
+          setCpData(buildCPData(d.product_distribution as Record<string, number>));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCpLoading(false));
+  }, []);
+
+  // Derived total for percentage labels
+  const CP_TOTAL = useMemo(
+    () => cpData?.children?.reduce((s, c) => s + (c.value ?? 0), 0) ?? 1,
+    [cpData],
+  );
 
   // ── Pack layout ─────────────────────────────────────────────────────────────
   const { packRoot, productNodes, issueNodes, connections } = useMemo(() => {
+    const src = cpData ?? { name: "root", children: [] };
     const packRoot = d3.pack<CPDatum>()
       .size([CP_PACK, CP_PACK])
       .padding(5)(
-        d3.hierarchy(CP_DATA)
+        d3.hierarchy(src)
           .sum((d) => d.value ?? 0)
           .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
       );
@@ -363,7 +445,7 @@ export function ComplaintTreemap() {
       }
     }
     return { packRoot, productNodes, issueNodes, connections };
-  }, []);
+  }, [cpData]);
 
   // Offset: translate pack coords → viewBox coords
   const ox = CP_PAD, oy = CP_PAD;
@@ -388,6 +470,22 @@ export function ComplaintTreemap() {
   const leave = () => { setHovered(null); setHoveredKey(null); };
 
   const TW = 190; // tooltip width
+
+  if (cpLoading) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 300, color: "#9ca3af", fontSize: 13 }}>
+        Loading 100K dataset…
+      </div>
+    );
+  }
+
+  if (!cpData) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 300, color: "#9ca3af", fontSize: 13 }}>
+        Unable to load product distribution data.
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
@@ -680,24 +778,27 @@ export function FairnessChart() {
 }
 
 // ─── 6. Pipeline Latency Stacked Bar ─────────────────────────────────────────
+// Per-agent timings (Risk Analyzer + Event Chain run in parallel; wall-clock ≈ 28s)
+// Classifier: ~2s | Risk Analyzer: ~0.01s | Event Chain: ~10s | Router: ~1.2s | Resolution: ~11s | Quality Check: ~5s
 const LATENCY_DATA = [
-  { name: "Avg complaint", classifier: 1.8, causal_analyst: 2.1, router: 1.2, resolution: 2.3, quality_check: 1.0 },
+  { name: "Avg complaint", classifier: 2.0, risk_analyzer: 0.01, event_chain: 10.0, router: 1.2, resolution: 11.0, quality_check: 5.0 },
 ];
 
 export function LatencyChart() {
   const colors = {
-    classifier:     "#0ea5e9",
-    causal_analyst: "#8b5cf6",
-    router:         "#f97316",
-    resolution:     "#10b981",
-    quality_check:  "#ec4899",
+    classifier:    "#0ea5e9",
+    risk_analyzer: "#a78bfa",
+    event_chain:   "#8b5cf6",
+    router:        "#f97316",
+    resolution:    "#10b981",
+    quality_check: "#ec4899",
   };
 
   return (
     <div>
       <ResponsiveContainer width="100%" height={100}>
         <BarChart layout="vertical" data={LATENCY_DATA} margin={{ top: 5, right: 30, bottom: 5, left: 20 }}>
-          <XAxis type="number" unit="s" tick={{ fontSize: 10, fill: "#374151" }} domain={[0, 9]} />
+          <XAxis type="number" unit="s" tick={{ fontSize: 10, fill: "#374151" }} domain={[0, 30]} />
           <YAxis type="category" dataKey="name" hide />
           <Tooltip
             formatter={(v, name) => [`${v}s`, String(name).replace(/_/g, " ")] as [string, string]}
@@ -722,11 +823,27 @@ export function LatencyChart() {
         ))}
       </div>
 
+      {/* Per-agent timing note */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", marginTop: 10 }}>
+        {[
+          { label: "Classifier", time: "~2s" },
+          { label: "Risk Analyzer", time: "~0.01s", note: "‖ parallel" },
+          { label: "Event Chain", time: "~10s", note: "‖ parallel" },
+          { label: "Router", time: "~1.2s" },
+          { label: "Resolution", time: "~11s" },
+          { label: "Quality Check", time: "~5s" },
+        ].map(({ label, time, note }) => (
+          <div key={label} style={{ fontSize: 9, color: "#6b7280", background: "#f3f4f6", borderRadius: 6, padding: "3px 7px", whiteSpace: "nowrap" }}>
+            <strong style={{ color: "#374151" }}>{label}</strong> {time}{note ? <em style={{ color: "#9ca3af" }}> {note}</em> : null}
+          </div>
+        ))}
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginTop: 16 }}>
         {[
-          { label: "Avg latency", value: "8.4s", sub: "per complaint" },
-          { label: "Throughput", value: "7/min", sub: "complaints" },
-          { label: "50-complaint batch", value: "420s", sub: "≈ 7 minutes" },
+          { label: "Avg latency", value: "~28s", sub: "per complaint" },
+          { label: "Throughput", value: "~2/min", sub: "complaints" },
+          { label: "50-complaint batch", value: "~1,400s", sub: "≈ 23 minutes" },
         ].map(({ label, value, sub }) => (
           <div key={label} style={{ textAlign: "center", padding: "10px", borderRadius: 10, border: "1px solid #f3f4f6", background: "#fafafa" }}>
             <p style={{ fontSize: 10, color: "#9ca3af", marginBottom: 4 }}>{label}</p>

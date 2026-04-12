@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Lightbulb, Shield, AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { CausalAnalysisOutput } from "@/types";
 
 interface Props {
@@ -145,40 +145,6 @@ export default function CausalGraph({ data }: Props) {
         })}
       </div>
 
-      {/* Prevention Opportunity box */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: total * 0.08 + 0.2 }}
-        style={{
-          marginTop: 24,
-          borderRadius: 12,
-          border: "1px solid #6ee7b7",
-          borderLeft: "4px solid #10b981",
-          background: "#ecfdf5",
-          padding: "16px 18px",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-          <Lightbulb style={{ width: 18, height: 18, color: "#059669", flexShrink: 0, marginTop: 1 }} />
-          <div>
-            <p style={{ fontSize: 13, fontWeight: 700, color: "#065f46", margin: 0, marginBottom: 6 }}>
-              Prevention Opportunity
-            </p>
-            <p style={{ fontSize: 13, color: "#047857", lineHeight: 1.6, margin: 0, fontStyle: "italic" }}>
-              {data.counterfactual_intervention}
-            </p>
-            {data.prevention_recommendation && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 7, marginTop: 10 }}>
-                <Shield style={{ width: 14, height: 14, color: "#059669", flexShrink: 0, marginTop: 1 }} />
-                <p style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, margin: 0 }}>
-                  {data.prevention_recommendation}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      </motion.div>
     </div>
   );
 }

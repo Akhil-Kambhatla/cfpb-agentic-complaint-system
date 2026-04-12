@@ -41,8 +41,10 @@ def _time_node(name: str, fn, state: PipelineState) -> PipelineState:
     """Run a node function and record elapsed time."""
     t0 = time.time()
     state = fn(state)
-    state["timings"][name] = round(time.time() - t0, 2)
-    logger.info(f"[{name}] completed in {state['timings'][name]}s")
+    elapsed = round(time.time() - t0, 2)
+    state["timings"][name] = elapsed
+    logger.info(f"[{name}] completed in {elapsed}s")
+    print(f"[PIPELINE] {name}: {elapsed}s")
     return state
 
 
@@ -141,6 +143,14 @@ class Pipeline:
     def run(self, complaint: ComplaintInput) -> PipelineOutput:
         """Process a single complaint through all agents. Returns PipelineOutput."""
         logger.info(f"Processing complaint {complaint.complaint_id}")
+        _pipeline_start = time.time()
+        print(f"\n[PIPELINE] === Starting pipeline for {complaint.complaint_id} ===")
+
+        # Truncate narrative to 1500 chars for all agents (FIX 7c)
+        if complaint.narrative and len(complaint.narrative) > 1500:
+            from dataclasses import replace as _replace
+            complaint = complaint.model_copy(update={"narrative": complaint.narrative[:1500]})
+
         initial_state: PipelineState = {
             "complaint": complaint,
             "classification": None,
@@ -154,11 +164,12 @@ class Pipeline:
         graph = _get_graph()
         final_state = graph.invoke(initial_state)
 
-        total = sum(final_state["timings"].values())
+        total = round(time.time() - _pipeline_start, 2)
         logger.info(
             f"Pipeline complete for {complaint.complaint_id} in {total:.1f}s | "
             + " | ".join(f"{k}={v}s" for k, v in final_state["timings"].items())
         )
+        print(f"[PIPELINE] === Total: {total}s ===\n")
 
         return PipelineOutput(
             complaint=final_state["complaint"],

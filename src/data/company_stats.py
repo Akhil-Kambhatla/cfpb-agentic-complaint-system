@@ -9,7 +9,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-DATA_PATH = Path(__file__).parent.parent.parent / "data" / "processed" / "dev_set_10k.csv"
+DATA_PATH = Path(__file__).parent.parent.parent / "data" / "processed" / "analysis_100k.csv"
 
 _RESPONSE_POSITIVE = {
     "Closed with monetary relief",

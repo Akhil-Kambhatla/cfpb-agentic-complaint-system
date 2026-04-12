@@ -25,11 +25,14 @@ from src.data.database import (
     save_pattern,
     update_case_status,
     update_pattern_count,
+    update_pattern_recommendation,
     update_task_status,
 )
 from src.utils.email_sender import send_acknowledgment_email
 from src.agents.learning import get_adaptive_threshold, get_suggested_team, record_outcome
-from src.models.schemas import ComplaintInput
+from src.models.schemas import ClassificationOutput, ComplaintInput
+from src.utils.product_mapping import canonicalize_product
+from src.utils.satisfaction_predictor import infer_resolution_type, predict_satisfaction
 from src.utils.slack import HIGH_RISK_THRESHOLD, send_slack_alert, send_team_routing_alert
 
 logger = logging.getLogger(__name__)
@@ -53,7 +56,7 @@ def _safe_dict(obj) -> dict:
 
 
 def _run_pipeline(complaint: ComplaintInput) -> dict:
-    """Run all 6 agents and return raw result dict."""
+    """Run all 6 agents and return raw result dict (includes satisfaction prediction)."""
     classification = ClassifierAgent().run(complaint)
     risk = RiskAnalyzerAgent().run(complaint, classification)
     event_chain = EventChainAgent().run(complaint, classification)
@@ -62,14 +65,28 @@ def _run_pipeline(complaint: ComplaintInput) -> dict:
     quality = QualityCheckAgent().run(
         complaint, classification, event_chain, routing, resolution, risk
     )
+
+    # Predicted customer satisfaction (after resolution is known)
+    res_dict = _safe_dict(resolution)
+    resolution_type = infer_resolution_type(res_dict)
+    satisfaction = predict_satisfaction(
+        product=classification.predicted_product,
+        severity=classification.severity,
+        resolution_probability=risk.resolution_probability,
+        risk_gap=risk.risk_gap,
+        resolution_type=resolution_type,
+        response_time_days=resolution.estimated_resolution_days,
+    )
+
     return {
         "complaint": _safe_dict(complaint),
         "classification": _safe_dict(classification),
         "event_chain": _safe_dict(event_chain),
         "risk_analysis": _safe_dict(risk),
         "routing": _safe_dict(routing),
-        "resolution": _safe_dict(resolution),
+        "resolution": res_dict,
         "quality_check": _safe_dict(quality),
+        "predicted_satisfaction": satisfaction,
     }
 
 
@@ -109,6 +126,187 @@ def _send_alert_message(text: str) -> None:
     except Exception as exc:
         logger.debug("Could not send Slack alert: %s", exc)
 
+
+
+def generate_cluster_recommendation(
+    company: str,
+    product: str,
+    issue: str,
+    complaint_count: int,
+    complaint_summaries: str,
+) -> str:
+    """Generate a systemic preventive recommendation for a complaint cluster using LLM."""
+    try:
+        from src.utils.llm import ask_claude
+        prompt = (
+            f"A company ({company}) has received {complaint_count} complaints about "
+            f"{product} in the last 7 days. The most common issue is: {issue}.\n\n"
+            f"Here are brief summaries of the complaints:\n{complaint_summaries}\n\n"
+            "Generate a specific, actionable systemic recommendation that would prevent "
+            "these types of complaints. Focus on process changes, policy updates, or "
+            "technology improvements the company should implement. "
+            "Keep it to 2-3 sentences. Be specific, not generic."
+        )
+        return ask_claude(prompt, max_tokens=300, agent_name="classifier")  # uses Haiku model
+    except Exception as exc:
+        logger.debug("Cluster recommendation generation failed: %s", exc)
+        return ""
+
+
+def process_structured_complaint(
+    complaint_data: dict,
+    source: str = "cfpb_api_structured",
+) -> dict:
+    """
+    Process a CFPB complaint that has no narrative — only structured fields.
+
+    Skips the Classifier (CFPB already classified it) and Event Chain (no text to analyze).
+    Runs: Risk Analyzer, Router, and generates a template-based resolution.
+    """
+    cid = complaint_data.get("complaint_id") or str(uuid.uuid4())
+    product = complaint_data.get("product", "")
+    issue = complaint_data.get("issue", "")
+    company = complaint_data.get("company", "")
+    state = complaint_data.get("state", "")
+
+    canonical_product = canonicalize_product(product)
+    # Synthetic narrative for agents that need text
+    synthetic_narrative = (
+        f"Structured complaint: {canonical_product} — {issue}. "
+        f"Company: {company}. State: {state}. No narrative provided."
+    )
+
+    complaint = ComplaintInput(
+        complaint_id=cid,
+        date_received=complaint_data.get("date_received", datetime.utcnow().strftime("%Y-%m-%d")),
+        narrative=synthetic_narrative,
+        product=canonical_product,
+        issue=issue,
+        company=company,
+        state=state,
+    )
+
+    # Use CFPB's own classification — confidence is 1.0 (CFPB classified it directly)
+    classification = ClassificationOutput(
+        predicted_product=canonical_product,
+        predicted_issue=issue or "Not specified",
+        severity="medium",
+        compliance_risk_score=0.5,
+        confidence=1.0,
+        reasoning=f"Classified by CFPB directly. Product: {canonical_product}, Issue: {issue}",
+    )
+
+    t0 = time.time()
+    save_activity("process", f"[STRUCTURED] Processing structured complaint {cid}", cid, "info")
+
+    try:
+        from src.models.schemas import CausalAnalysisOutput, CausalEdge
+        # Placeholder event chain for agents that require it (no narrative available)
+        placeholder_event_chain = CausalAnalysisOutput(
+            causal_chain=[CausalEdge(cause=issue or "Unknown", effect="Complaint filed", description="Structured-only complaint")],
+            root_cause=issue or "Unknown issue — no narrative provided",
+            causal_depth=1,
+            counterfactual_intervention="Not available — no consumer narrative",
+            prevention_recommendation="Review structured CFPB data for systemic patterns",
+            confidence=0.5,
+            reasoning="Structured-only complaint — no narrative to analyze",
+        )
+        risk = RiskAnalyzerAgent().run(complaint, classification)
+        routing = RouterAgent().run(complaint, classification, placeholder_event_chain, risk)
+        resolution = ResolutionAgent().run(complaint, classification, placeholder_event_chain, routing, risk)
+
+        res_dict = _safe_dict(resolution)
+        resolution_type = infer_resolution_type(res_dict)
+        satisfaction = predict_satisfaction(
+            product=canonical_product,
+            severity="medium",
+            resolution_probability=risk.resolution_probability,
+            risk_gap=risk.risk_gap,
+            resolution_type=resolution_type,
+            response_time_days=resolution.estimated_resolution_days,
+        )
+
+        result = {
+            "complaint": _safe_dict(complaint),
+            "classification": _safe_dict(classification),
+            "event_chain": _safe_dict(placeholder_event_chain),
+            "risk_analysis": _safe_dict(risk),
+            "routing": _safe_dict(routing),
+            "resolution": res_dict,
+            "quality_check": {"overall_confidence": 0.7, "quality_flag": "pass", "consistency_issues": [], "reasoning_trace": "Structured-only complaint", "agent_confidences": {}},
+            "predicted_satisfaction": satisfaction,
+            "structured_only": True,
+        }
+    except Exception as exc:
+        logger.error("Structured pipeline failed for %s: %s", cid, exc, exc_info=True)
+        save_activity("error", f"[ERROR] Structured pipeline failed for {cid}: {exc}", cid, "critical")
+        return {"complaint_id": cid, "error": str(exc), "tier": "error"}
+
+    elapsed = round(time.time() - t0, 2)
+    team = result["routing"].get("assigned_team", "customer_service")
+    priority = result["routing"].get("priority_level", "P3")
+
+    complaint_record = {
+        "complaint_id": cid,
+        "narrative": synthetic_narrative,
+        "company": company,
+        "state": state,
+        "source": source,
+        "product": canonical_product,
+        "issue": issue,
+        "severity": "medium",
+        "compliance_risk": 0.5,
+        "resolution_probability": result["risk_analysis"].get("resolution_probability", 0.0),
+        "resolution_ci_lower": result["risk_analysis"].get("credible_interval_lower", 0.0),
+        "resolution_ci_upper": result["risk_analysis"].get("credible_interval_upper", 0.0),
+        "risk_gap": result["risk_analysis"].get("risk_gap", 0.0),
+        "assigned_team": team,
+        "priority": priority,
+        "overall_confidence": 0.7,
+        "quality_flag": "pass",
+        "human_review_needed": 0,
+        "auto_processed": 1,
+        "slack_team_sent": 0,
+        "slack_alert_sent": 0,
+        "email_sent": 0,
+        "processing_time_seconds": elapsed,
+        "full_result_json": json.dumps(result),
+    }
+    save_complaint(complaint_record)
+
+    case_data = {
+        "complaint_id": cid,
+        "narrative": synthetic_narrative,
+        "company": company,
+        "state": state,
+        "auto_processed": True,
+        "source": source,
+    }
+    case_info = create_case(case_data, result)
+    case_number = case_info["case_number"]
+    case_id = case_info["id"]
+
+    tasks = generate_tasks(canonical_product, issue, team, res_dict.get("remediation_steps", []))
+    create_case_tasks(case_id, tasks)
+
+    save_activity(
+        "process",
+        f"[STRUCTURED] Case {case_number} created from structured CFPB data. "
+        f"Product: {canonical_product}. Team: {team}.",
+        cid,
+        "info",
+        {"case_number": case_number, "structured_only": True},
+    )
+
+    result["_decision"] = {
+        "tier": "auto",
+        "auto_processed": True,
+        "structured_only": True,
+        "case_number": case_number,
+        "case_id": case_id,
+        "processing_time_seconds": elapsed,
+    }
+    return result
 
 
 def process_complaint_autonomously(
@@ -259,6 +457,7 @@ def process_complaint_autonomously(
         "company": company or "",
         "state": state or "",
         "auto_processed": auto_processed,
+        "source": source,
     }
     case_info = create_case(complaint_data, result)
     case_id = case_info["id"]
@@ -386,7 +585,27 @@ def _detect_patterns(company: Optional[str], product: str) -> None:
             p = c.get("product", "")
             by_product.setdefault(p, []).append(c.get("complaint_id", ""))
 
-        for prod, ids in by_product.items():
+        # Prefer case_numbers over complaint UUIDs for display (FIX 12)
+        for prod, _ in by_product.items():
+            prod_complaints = [c for c in company_complaints if c.get("product", "") == prod]
+            # Look up case_numbers from the cases table by complaint_id
+            complaint_ids_for_prod = [c.get("complaint_id", "") for c in prod_complaints if c.get("complaint_id")]
+            case_nums: list[str] = []
+            if complaint_ids_for_prod:
+                try:
+                    from src.data.database import _get_conn as _gcn
+                    _cn = _gcn()
+                    try:
+                        for cid in complaint_ids_for_prod[:20]:
+                            row = _cn.execute("SELECT case_number FROM cases WHERE complaint_id = ? LIMIT 1", (cid,)).fetchone()
+                            if row:
+                                case_nums.append(row["case_number"])
+                    finally:
+                        _cn.close()
+                except Exception:
+                    pass
+            ids = case_nums if case_nums else complaint_ids_for_prod
+
             if len(ids) >= 3:
                 description = (
                     f"{len(ids)} complaints about {company} / {prod} in the last 7 days"
@@ -397,7 +616,7 @@ def _detect_patterns(company: Optional[str], product: str) -> None:
                         # Update existing cluster instead of creating a duplicate
                         update_pattern_count(existing["id"], len(ids), json.dumps(ids))
                     else:
-                        save_pattern(
+                        pattern_id = save_pattern(
                             {
                                 "pattern_type": "complaint_cluster",
                                 "description": description,
@@ -420,6 +639,42 @@ def _detect_patterns(company: Optional[str], product: str) -> None:
                             f"[PATTERN] {len(ids)} complaints about {company} — "
                             f"{prod} in the last 7 days. Review recommended."
                         )
+                        # Generate systemic preventive recommendation for the cluster
+                        # Fetch actual narrative previews so the LLM gets real complaint text
+                        narratives: list[str] = []
+                        try:
+                            from src.data.database import _get_conn as _gcn_narr
+                            _cn_narr = _gcn_narr()
+                            try:
+                                for _ref in ids[:5]:
+                                    _label = str(_ref)
+                                    if _label.startswith("CIS-"):
+                                        _row = _cn_narr.execute(
+                                            "SELECT narrative_preview FROM cases WHERE case_number = ? LIMIT 1",
+                                            (_label,),
+                                        ).fetchone()
+                                    else:
+                                        _row = _cn_narr.execute(
+                                            "SELECT narrative_preview FROM cases WHERE complaint_id = ? LIMIT 1",
+                                            (_label,),
+                                        ).fetchone()
+                                    if _row and _row[0]:
+                                        narratives.append(f"- {_row[0][:200]}")
+                            finally:
+                                _cn_narr.close()
+                        except Exception:
+                            pass
+                        # Most common issue among cluster complaints
+                        _issues = [c.get("issue", "") for c in prod_complaints if c.get("issue")]
+                        _top_issue = max(set(_issues), key=_issues.count) if _issues else ""
+                        summaries = (
+                            "\n".join(narratives)
+                            if narratives
+                            else f"{len(ids)} complaints about {prod} from {company}"
+                        )
+                        rec = generate_cluster_recommendation(company, prod, _top_issue, len(ids), summaries)
+                        if rec and pattern_id:
+                            update_pattern_recommendation(pattern_id, rec)
                 except Exception:
                     pass  # ignore errors
 
@@ -442,13 +697,20 @@ def process_batch_autonomously(complaints: list[dict]) -> dict:
     products_seen: set[str] = set()
 
     for c in complaints:
-        result = process_complaint_autonomously(
-            narrative=c.get("narrative", ""),
-            company=c.get("company"),
-            state=c.get("state"),
-            source=c.get("source", "cfpb_api"),
-            complaint_id=c.get("complaint_id"),
-        )
+        source = c.get("source", "cfpb_api")
+        narrative = c.get("narrative", "")
+
+        # Route structured-only complaints to the lighter pipeline
+        if source == "cfpb_api_structured" or not narrative.strip():
+            result = process_structured_complaint(c, source=source)
+        else:
+            result = process_complaint_autonomously(
+                narrative=narrative,
+                company=c.get("company"),
+                state=c.get("state"),
+                source=source,
+                complaint_id=c.get("complaint_id"),
+            )
         results.append(result)
         tier = result.get("_decision", {}).get("tier", "error")
         tiers[tier] = tiers.get(tier, 0) + 1

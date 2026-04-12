@@ -53,19 +53,29 @@ function BayesianFindings() {
   const coeffs = (apiStats?.bayesian_coefficients ?? null) as Record<string, { mean: number }> | null;
   const featureImportance = coeffs
     ? [
-        { label: "Product type", value: Math.abs(coeffs.product_rate?.mean ?? 0.713), color: "#10b981", positive: (coeffs.product_rate?.mean ?? 1) > 0 },
-        { label: "Mentions dollar amount", value: Math.abs(coeffs.mentions_dollar?.mean ?? 0.053), color: "#9ca3af", positive: (coeffs.mentions_dollar?.mean ?? 1) > 0 },
-        { label: "Mentions regulation", value: Math.abs(coeffs.mentions_regulation?.mean ?? 0.041), color: "#9ca3af", positive: (coeffs.mentions_regulation?.mean ?? 1) > 0 },
-        { label: "Mentions attorney", value: Math.abs(coeffs.mentions_attorney?.mean ?? 0.007), color: "#9ca3af", positive: (coeffs.mentions_attorney?.mean ?? -1) > 0 },
-        { label: "Narrative length", value: Math.abs(coeffs.narrative_length?.mean ?? 0.002), color: "#9ca3af", positive: (coeffs.narrative_length?.mean ?? -1) > 0 },
+        { label: "Product type",          value: Math.abs(coeffs.product_rate?.mean       ?? 0.581), color: "#10b981", positive: (coeffs.product_rate?.mean       ?? 1)  > 0 },
+        { label: "Mentions dollar amount",value: Math.abs(coeffs.mentions_dollar?.mean    ?? 0.070), color: "#9ca3af", positive: (coeffs.mentions_dollar?.mean    ?? 1)  > 0 },
+        { label: "Mentions attorney",     value: Math.abs(coeffs.mentions_attorney?.mean  ?? 0.046), color: "#9ca3af", positive: (coeffs.mentions_attorney?.mean  ?? -1) > 0 },
+        { label: "Mentions regulation",   value: Math.abs(coeffs.mentions_regulation?.mean?? 0.014), color: "#9ca3af", positive: (coeffs.mentions_regulation?.mean?? 1)  > 0 },
+        { label: "Narrative length",      value: Math.abs(coeffs.narrative_length?.mean   ?? 0.016), color: "#9ca3af", positive: (coeffs.narrative_length?.mean   ?? -1) > 0 },
       ].sort((a, b) => b.value - a.value)
     : [
-        { label: "Product type", value: 0.713, color: "#10b981", positive: true },
-        { label: "Mentions dollar amount", value: 0.053, color: "#9ca3af", positive: true },
-        { label: "Mentions regulation", value: 0.041, color: "#9ca3af", positive: false },
-        { label: "Mentions attorney", value: 0.007, color: "#9ca3af", positive: false },
-        { label: "Narrative length", value: 0.002, color: "#9ca3af", positive: false },
+        { label: "Product type",          value: 0.581, color: "#10b981", positive: true },
+        { label: "Mentions dollar amount",value: 0.070, color: "#9ca3af", positive: true },
+        { label: "Mentions attorney",     value: 0.046, color: "#9ca3af", positive: false },
+        { label: "Mentions regulation",   value: 0.014, color: "#9ca3af", positive: true },
+        { label: "Narrative length",      value: 0.016, color: "#9ca3af", positive: false },
       ];
+
+  // Derived statistics for dynamic text
+  const totalAbsCoeff   = featureImportance.reduce((s, f) => s + f.value, 0);
+  const productVal      = featureImportance.find(f => f.label === "Product type")?.value ?? 0;
+  const attorneyVal     = featureImportance.find(f => f.label === "Mentions attorney")?.value ?? 0;
+  const narrativeVal    = featureImportance.find(f => f.label === "Narrative length")?.value ?? 0;
+  const productPct      = totalAbsCoeff > 0 ? Math.round(productVal / totalAbsCoeff * 100) : 80;
+  const otherPct        = 100 - productPct;
+  const attorneyRatio   = attorneyVal  > 0 ? Math.round(productVal / attorneyVal)  : 13;
+  const narrativeRatio  = narrativeVal > 0 ? Math.round(productVal / narrativeVal) : 36;
 
   // Resolution rates by product from API
   const ratesByProduct = (apiStats?.resolution_rates_by_product ?? null) as Record<string, { rate: number; count: number }> | null;
@@ -91,9 +101,9 @@ function BayesianFindings() {
         { product: "Student Loan", rate: 1.9 },
       ];
 
-  const highRiskPct = (apiStats?.high_risk_gap_pct as number | undefined) ?? 8.6;
-  const highRiskCount = (apiStats?.high_risk_gap_count as number | undefined) ?? 856;
-  const totalAnalyzed = (apiStats?.total_complaints_analyzed as number | undefined) ?? 10000;
+  const highRiskPct = (apiStats?.high_risk_gap_pct as number | undefined) ?? 12.0;
+  const highRiskCount = (apiStats?.high_risk_gap_count as number | undefined) ?? 12000;
+  const totalAnalyzed = (apiStats?.total_complaints_analyzed as number | undefined) ?? 100000;
   const maxRate = resolutionRates[0]?.rate ?? 47;
 
   return (
@@ -106,11 +116,11 @@ function BayesianFindings() {
             Product Type Dominates Outcomes
           </h4>
           <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 14px", lineHeight: 1.5 }}>
-            Product type accounts for 92% of the model&apos;s predictive power. Everything else combined — how the complaint is written, dollar amounts, legal citations — adds only 8%.
+            Product type accounts for {productPct}% of the model&apos;s predictive power. Everything else combined — how the complaint is written, dollar amounts, legal citations — adds only {otherPct}%.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {featureImportance.map(({ label, value, color, positive }) => {
-              const widthPct = (value / (featureImportance[0]?.value || 0.713)) * 95;
+              const widthPct = (value / (featureImportance[0]?.value || productVal || 0.581)) * 95;
               return (
                 <div key={label}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -132,17 +142,24 @@ function BayesianFindings() {
             })}
           </div>
           <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 10, lineHeight: 1.4 }}>
-            Bayesian posterior mean coefficients. Product type is 130× more influential than mentioning a lawyer, and 350× more influential than narrative length.
+            Bayesian posterior mean coefficients. Product type is {attorneyRatio}× more influential than mentioning a lawyer, and {narrativeRatio}× more influential than narrative length.
           </p>
         </div>
 
         {/* Card 2: Resolution rates by product */}
         <div style={{ borderRadius: 12, border: "1px solid #e5e7eb", background: "#fafafa", padding: "16px 18px" }}>
           <h4 style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
-            Resolution Probability Varies 25× by Product
+            {(() => {
+              const top = resolutionRates[0]?.rate ?? 0;
+              const bot = resolutionRates[resolutionRates.length - 1]?.rate ?? 1;
+              const ratio = bot > 0 ? Math.round(top / bot) : "25";
+              return `Resolution Probability Varies ${ratio}× by Product`;
+            })()}
           </h4>
           <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 12px", lineHeight: 1.5 }}>
-            Credit reporting: 47%. Student loan: 1.9%. This 25× disparity is structural.
+            {resolutionRates[0] ? `${resolutionRates[0].product}: ${resolutionRates[0].rate}%.` : "Highest category"}{" "}
+            {resolutionRates[resolutionRates.length - 1] ? `${resolutionRates[resolutionRates.length - 1].product}: ${resolutionRates[resolutionRates.length - 1].rate}%.` : ""}{" "}
+            This disparity is structural.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             {resolutionRates.map(({ product, rate }) => {
@@ -185,6 +202,37 @@ function BayesianFindings() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Bayesian Interpretation (dynamic coefficients) ───────────────────────────
+function BayesianInterpretation() {
+  const [coeffs, setCoeffs] = useState<Record<string, { mean: number }> | null>(null);
+
+  useEffect(() => {
+    fetch(`${API}/dataset-stats`)
+      .then((r) => r.json())
+      .then((d) => setCoeffs((d.bayesian_coefficients as Record<string, { mean: number }>) ?? null))
+      .catch(() => {});
+  }, []);
+
+  const pRate   = coeffs?.product_rate?.mean        ?? 0.5815;
+  const mDollar = coeffs?.mentions_dollar?.mean     ?? 0.0699;
+  const mAtty   = coeffs?.mentions_attorney?.mean   ?? -0.0463;
+  const mReg    = coeffs?.mentions_regulation?.mean ?? 0.0135;
+  const mNarr   = coeffs?.narrative_length?.mean    ?? -0.0162;
+
+  return (
+    <Interpretation>
+      The Bayesian model coefficients reveal a stark pattern: product type (coefficient:{" "}
+      <strong>{pRate.toFixed(3)}</strong>) drives the prediction far more than any other signal.
+      Dollar amounts ({mDollar >= 0 ? "+" : ""}{mDollar.toFixed(3)}) and attorney mentions (
+      {mAtty >= 0 ? "+" : ""}{mAtty.toFixed(3)}) are the only other features with credible intervals
+      excluding zero. Regulation mentions ({mReg >= 0 ? "+" : ""}{mReg.toFixed(3)}) and narrative
+      length ({mNarr >= 0 ? "+" : ""}{mNarr.toFixed(3)}) are statistically negligible. In practical
+      terms: a one-sentence credit reporting complaint and a ten-page credit reporting complaint with
+      legal citations have nearly identical resolution probabilities.
+    </Interpretation>
   );
 }
 
@@ -246,6 +294,28 @@ function EvaluationContent({
   AccuracyTable: React.ComponentType;
   ResolutionQuality: React.ComponentType;
 }) {
+  const [evalStats, setEvalStats] = useState<Record<string, unknown> | null>(null);
+
+  useEffect(() => {
+    fetch(`${API}/dataset-stats`)
+      .then((r) => r.json())
+      .then((d) => setEvalStats(d))
+      .catch(() => {});
+  }, []);
+
+  const pctClosed  = (evalStats?.pct_closed_with_explanation as number | undefined) ?? 59.8;
+  const pctResolved = (evalStats?.pct_got_resolution as number | undefined) ?? 36.9;
+
+  // Compute credit-reporting share from product_distribution if available
+  const productDist = (evalStats?.product_distribution ?? null) as Record<string, number> | null;
+  const totalComplaints = (evalStats?.total_complaints_analyzed as number | undefined) ?? 100000;
+  const crCount = productDist
+    ? Object.entries(productDist)
+        .filter(([k]) => k.toLowerCase().includes("credit report") || k.toLowerCase().includes("personal consumer"))
+        .reduce((s, [, v]) => s + v, 0)
+    : null;
+  const crPct = crCount != null ? Math.round(crCount / totalComplaints * 100) : 79;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
       {/* Key Metrics */}
@@ -274,7 +344,7 @@ function EvaluationContent({
       {/* Bayesian Findings */}
       <Section
         title="Key Bayesian Findings"
-        subtitle="What our Bayesian logistic regression revealed from 10,000 CFPB complaints — the structural patterns that drive resolution outcomes."
+        subtitle="What our Bayesian logistic regression revealed from 100,000 CFPB complaints — the structural patterns that drive resolution outcomes."
         delay={0.13}
       >
         <BayesianFindings />
@@ -282,11 +352,9 @@ function EvaluationContent({
           marginTop: 12, padding: "10px 14px", borderRadius: 8,
           background: "#f8fafc", border: "1px solid #e2e8f0", fontSize: 11, color: "#64748b", lineHeight: 1.6
         }}>
-          <strong style={{ color: "#374151" }}>Model Details:</strong> Bayesian logistic regression, PyMC framework, NUTS sampler. 1,000 posterior draws, 500 tuning steps, 2 chains. R-hat = 1.00 (converged), zero divergences. Trained on 2,000 stratified complaints. Features: product resolution rate, narrative length, regulation mentions, attorney mentions, dollar amount mentions.
+          <strong style={{ color: "#374151" }}>Model Details:</strong> Bayesian logistic regression, PyMC framework, NUTS sampler. 2,000 posterior draws, 1,000 tuning steps, 2 chains. R-hat = 1.00 (converged), zero divergences. Trained on 35,000 stratified complaints from a 100,000-complaint dataset. Features: product resolution rate, narrative length, regulation mentions, attorney mentions, dollar amount mentions.
         </div>
-        <Interpretation>
-          The Bayesian model coefficients reveal a stark pattern: product type (coefficient: 0.713) drives the prediction almost entirely. Dollar amounts (+0.053), regulation mentions (−0.041), attorney references (−0.007), and narrative length (−0.002) are all statistically negligible — their 95% credible intervals all include zero, meaning we cannot confidently say they have any real effect. In practical terms: a one-sentence credit reporting complaint and a ten-page credit reporting complaint with legal citations have nearly identical resolution probabilities.
-        </Interpretation>
+        <BayesianInterpretation />
       </Section>
 
       {/* Product-Level Accuracy */}
@@ -329,24 +397,26 @@ function EvaluationContent({
         <ResolutionQuality />
         <Interpretation>
           Our system generates significantly more detailed responses than typical company replies. While
-          59% of companies simply close complaints &quot;with explanation,&quot; our system provides specific
-          remediation steps, references applicable regulations (e.g., Regulation E, FCRA), and includes
-          preventive recommendations tailored to the specific complaint narrative.
+          {" "}{pctClosed.toFixed(1)}% of companies simply close complaints &quot;with explanation,&quot; our system
+          provides specific remediation steps, references applicable regulations (e.g., Regulation E,
+          FCRA), and includes preventive recommendations tailored to the specific complaint narrative.
+          Only {pctResolved.toFixed(1)}% of complaints receive monetary or non-monetary relief — our
+          system helps identify which deserve escalation.
         </Interpretation>
       </Section>
 
       {/* Complaint Landscape */}
       <Section
-        title="Complaint Landscape (10,000-record Dev Set)"
+        title="Complaint Landscape (100,000-record Dataset)"
         subtitle="Circle area proportional to complaint volume. Nested circles show top issues within each product category. Hover for counts."
         delay={0.25}
       >
         <ComplaintTreemap />
         <Interpretation>
-          This circle-packing visualization shows the composition of our 10,000-complaint dataset. Circle size is
-          proportional to complaint volume. Credit Reporting dominates at 76% of complaints, reflecting
-          real-world CFPB trends where credit bureau errors are the most common consumer grievance.
-          Nested circles show the top issues within each product — hover any circle for exact
+          This circle-packing visualization shows the composition of our 100,000-complaint dataset. Circle
+          size is proportional to complaint volume. Credit Reporting dominates at {crPct}% of complaints,
+          reflecting real-world CFPB trends where credit bureau errors are the most common consumer
+          grievance. Nested circles show the top issues within each product — hover any circle for exact
           counts and percentages.
         </Interpretation>
       </Section>
@@ -380,15 +450,16 @@ function EvaluationContent({
       {/* System Performance */}
       <Section
         title="System Performance"
-        subtitle="Latency breakdown per agent for a single complaint. Total pipeline time ≈ 8.4 seconds. Batch of 50 takes ≈ 7 minutes."
+        subtitle="Latency breakdown per agent for a single complaint. Total pipeline time ≈ 28 seconds (6 agents, 2 running in parallel). Batch of 50 takes ≈ 23 minutes."
         delay={0.35}
       >
         <LatencyChart />
         <Interpretation>
           Each segment shows how long one agent takes to process a single complaint. The full pipeline
-          runs in approximately 8.4 seconds end-to-end. At this rate, the system can process about
-          7 complaints per minute or 420 per hour — sufficient for real-time triage of CFPB&apos;s
-          daily intake volume.
+          runs in approximately 28 seconds end-to-end (with Risk Analyzer and Event Chain running in
+          parallel, and Classifier, Router, and Quality Check using Claude Haiku for speed). At this rate,
+          the system can process about 2 complaints per minute — sufficient for real-time triage of
+          CFPB&apos;s daily intake volume.
         </Interpretation>
       </Section>
 

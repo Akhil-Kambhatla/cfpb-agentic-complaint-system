@@ -5,7 +5,12 @@ from typing import Optional
 
 import requests
 
-from src.data.database import get_recent_complaints, get_system_state, set_system_state
+from src.data.database import (
+    get_processed_complaint_ids,
+    get_recent_complaints,
+    get_system_state,
+    set_system_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,27 +112,110 @@ def fetch_recent_complaints(since_date: str, max_results: int = 25) -> list[dict
 
 def fetch_new_since_last_poll() -> list[dict]:
     """
-    Fetch complaints since the last recorded poll time.
+    Fetch recent CFPB complaints we haven't processed yet.
 
-    Reads last_poll_time from system_state, fetches complaints since that date,
-    updates last_poll_time, and returns only truly new complaints.
+    Always looks back 30 days to account for the CFPB API's 2-3 week publishing delay.
+    Deduplicates against all complaint IDs already in the database.
+    Updates last_poll_time in system_state.
     """
-    state = get_system_state()
-    last_poll = state.get("last_poll_time", "")
+    # Always look back 30 days — CFPB data has a 2-3 week publishing delay
+    since_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
 
-    if last_poll:
-        since_date = last_poll[:10]  # YYYY-MM-DD portion
-    else:
-        # First poll: go back 7 days
-        since_date = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+    logger.info("Polling CFPB API for complaints since %s (30-day window)", since_date)
 
-    logger.info("Polling CFPB API for complaints since %s", since_date)
-    complaints = fetch_recent_complaints(since_date)
+    params = {
+        "has_narrative": "true",
+        "date_received_min": since_date,
+        "size": 25,
+        "sort": "created_date_desc",
+        "no_aggs": "true",
+    }
+
+    raw_hits = []
+    try:
+        raw_hits = _fetch_from_api(params, _HEADERS)
+    except PermissionError:
+        logger.warning("CFPB API returned 403 — retrying with alternate User-Agent")
+        try:
+            raw_hits = _fetch_from_api(params, _HEADERS_ALT)
+        except PermissionError:
+            logger.error("CFPB API still returning 403 after retry — skipping poll")
+            return []
+
+    if not raw_hits:
+        logger.info("No complaints returned from CFPB API")
+        set_system_state("last_poll_time", datetime.utcnow().isoformat())
+        return []
+
+    # Use the full processed_complaints table for deduplication (not just recent 30 days)
+    processed_ids = get_processed_complaint_ids()
+
+    complaints = []
+    for raw in raw_hits:
+        normalized = _normalize(raw)
+        cid = normalized["complaint_id"]
+        if not normalized["narrative"]:
+            continue
+        if cid and cid in processed_ids:
+            logger.debug("Skipping already-processed complaint %s", cid)
+            continue
+        complaints.append(normalized)
 
     # Update last poll time
     set_system_state("last_poll_time", datetime.utcnow().isoformat())
 
     if not complaints:
-        logger.info("No new complaints since last poll (%s)", since_date)
+        logger.info("No new complaints in the last 30 days (all already processed)")
+    else:
+        logger.info("Fetched %d new complaints from CFPB API", len(complaints))
 
+    return complaints
+
+
+def fetch_structured_only_complaints(max_results: int = 5) -> list[dict]:
+    """
+    Fetch recent complaints that don't have narratives — structured data only.
+
+    These use CFPB's own classification (product/issue) rather than our LLM classifier.
+    Returns complaint dicts with an empty narrative field.
+    """
+    since_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+
+    params = {
+        "has_narrative": "false",
+        "date_received_min": since_date,
+        "size": max_results * 3,  # fetch extra to account for duplicates
+        "sort": "created_date_desc",
+        "no_aggs": "true",
+    }
+
+    raw_hits = []
+    try:
+        raw_hits = _fetch_from_api(params, _HEADERS)
+    except PermissionError:
+        try:
+            raw_hits = _fetch_from_api(params, _HEADERS_ALT)
+        except PermissionError:
+            logger.error("CFPB API 403 when fetching structured-only complaints")
+            return []
+
+    if not raw_hits:
+        return []
+
+    processed_ids = get_processed_complaint_ids()
+
+    complaints = []
+    for raw in raw_hits:
+        normalized = _normalize(raw)
+        cid = normalized["complaint_id"]
+        if cid and cid in processed_ids:
+            continue
+        # Mark as structured-only (no narrative)
+        normalized["narrative"] = ""
+        normalized["source"] = "cfpb_api_structured"
+        complaints.append(normalized)
+        if len(complaints) >= max_results:
+            break
+
+    logger.info("Fetched %d structured-only complaints from CFPB API", len(complaints))
     return complaints

@@ -9,6 +9,7 @@ import numpy as np
 
 from src.data.company_stats import get_company_stats
 from src.models.schemas import ClassificationOutput, ComplaintInput, RiskAnalysisOutput
+from src.utils.product_mapping import canonicalize_product
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,32 @@ DOLLAR_KEYWORDS = re.compile(r"\$[\d,]+|\b\d[\d,]*\s*dollars?\b", re.IGNORECASE)
 @lru_cache(maxsize=1)
 def _load_model() -> dict:
     with open(MODEL_PATH, "rb") as f:
-        return pickle.load(f)
+        data = pickle.load(f)
+
+    # Convert all posterior_samples values to numpy arrays so arithmetic works
+    ps = data.get("posterior_samples", {})
+    data["posterior_samples"] = {k: np.array(v, dtype=np.float64) for k, v in ps.items()}
+
+    # Build canonical_resolution_rates by averaging old-name rates per canonical name
+    old_rates = data.get("product_resolution_rates", {})
+    canonical_rates: dict[str, float] = {}
+    canonical_counts: dict[str, int] = {}
+    for old_name, rate in old_rates.items():
+        canonical = canonicalize_product(old_name)
+        if canonical not in canonical_rates:
+            canonical_rates[canonical] = 0.0
+            canonical_counts[canonical] = 0
+        canonical_rates[canonical] += rate
+        canonical_counts[canonical] += 1
+    for c in canonical_rates:
+        canonical_rates[c] = round(canonical_rates[c] / canonical_counts[c], 4)
+    data["canonical_resolution_rates"] = canonical_rates
+    # Compute overall average from old rates
+    if old_rates:
+        data["overall_avg_rate"] = round(sum(old_rates.values()) / len(old_rates), 4)
+    else:
+        data["overall_avg_rate"] = 0.369
+    return data
 
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
@@ -41,6 +67,42 @@ def _risk_level(risk_gap: float) -> str:
     if risk_gap > 0.05:
         return "medium"
     return "low"
+
+
+def generate_key_finding(
+    resolution_prob: float,
+    risk_gap: float,
+    product: str,
+    product_baseline: float,
+) -> str:
+    """Generate a human-readable key finding based on risk thresholds."""
+    if risk_gap > 0.30:
+        return (
+            f"CRITICAL: Risk gap of {risk_gap:.0%} — resolution probability ({resolution_prob:.0%}) "
+            f"is far below the {product} baseline of {product_baseline:.0%}. "
+            f"Immediate escalation and senior compliance review required."
+        )
+    elif risk_gap > 0.20:
+        return (
+            f"ELEVATED RISK: Resolution probability ({resolution_prob:.0%}) is {risk_gap:.0%} below "
+            f"the {product} baseline ({product_baseline:.0%}). Priority review recommended."
+        )
+    elif risk_gap > 0.10:
+        return (
+            f"MODERATE: Some gap between risk and resolution likelihood. "
+            f"Resolution probability {resolution_prob:.0%} vs {product} baseline {product_baseline:.0%}. "
+            f"Standard monitoring applies."
+        )
+    elif resolution_prob < 0.20:
+        return (
+            f"LOW RESOLUTION: Only {resolution_prob:.0%} chance of meaningful resolution for {product}. "
+            f"This reflects the product category's historical pattern."
+        )
+    else:
+        return (
+            f"ROUTINE: Resolution probability of {resolution_prob:.0%} aligns with the "
+            f"{product} baseline of {product_baseline:.0%}. Standard response procedures apply."
+        )
 
 
 def _recommended_action(risk_level: str, product: str) -> str:
@@ -87,14 +149,23 @@ class RiskAnalyzerAgent:
     ) -> RiskAnalysisOutput:
         model = _load_model()
         ps = model["posterior_samples"]
-        rates = model["product_resolution_rates"]
+        canonical_rates = model["canonical_resolution_rates"]
         sp = model["scaler_params"]
 
-        narrative = complaint.narrative or ""
+        # Truncate narrative for token efficiency (FIX 7c)
+        narrative = (complaint.narrative or "")[:1500]
         product = classification.predicted_product
 
         # ── Feature extraction ────────────────────────────────────────────────
-        company_baseline = rates.get(product, 0.35)
+        # Canonicalize product for consistent rate lookup (FIX 1, 15)
+        canonical_product = canonicalize_product(product)
+        company_baseline = canonical_rates.get(canonical_product)
+        if company_baseline is None:
+            company_baseline = model.get("overall_avg_rate", 0.369)
+            logger.warning(
+                f"[RISK] Product '{product}' (canonical: '{canonical_product}') not in training data. "
+                f"Using dataset average: {company_baseline}"
+            )
 
         # Normalize product risk score using scaler params
         product_risk_raw = company_baseline
@@ -110,14 +181,22 @@ class RiskAnalyzerAgent:
         mentions_dollar = 1.0 if DOLLAR_KEYWORDS.search(narrative) else 0.0
 
         # ── Posterior predictive distribution (2000 samples) ──────────────────
-        logits = (
-            ps["intercept"]
-            + ps["beta_product_risk"] * product_risk
-            + ps["beta_narrative_length"] * length_scaled
-            + ps["beta_mentions_regulation"] * mentions_regulation
-            + ps["beta_mentions_attorney"] * mentions_attorney
-            + ps["beta_mentions_dollar"] * mentions_dollar
-        )
+        try:
+            logits = (
+                ps["intercept"]
+                + ps["beta_product_risk"] * product_risk
+                + ps["beta_narrative_length"] * length_scaled
+                + ps["beta_mentions_regulation"] * mentions_regulation
+                + ps["beta_mentions_attorney"] * mentions_attorney
+                + ps["beta_mentions_dollar"] * mentions_dollar
+            )
+        except TypeError as e:
+            import traceback
+            logger.error(f"[RISK ANALYZER] Logit computation failed: {e}")
+            logger.error(f"[RISK ANALYZER] ps key types: { {k: type(v) for k, v in ps.items()} }")
+            logger.error(f"[RISK ANALYZER] product_risk type: {type(product_risk)}, value: {product_risk}")
+            traceback.print_exc()
+            raise
         probs = _sigmoid(logits)
 
         resolution_probability = float(np.mean(probs))
@@ -226,6 +305,7 @@ class RiskAnalyzerAgent:
             risk_level=level,
             recommended_action=_recommended_action(level, product),
             confidence=round(confidence, 4),
+            key_finding=generate_key_finding(resolution_probability, risk_gap, product, company_baseline),
             reasoning=reasoning,
         )
 
@@ -238,19 +318,22 @@ class RiskAnalyzerAgent:
         risk = classification.compliance_risk_score
         gap = max(0.0, risk - 0.5)
         level = _risk_level(gap)
+        res_prob = round(1.0 - risk * 0.6, 4)
+        baseline = 0.35
         return RiskAnalysisOutput(
-            resolution_probability=round(1.0 - risk * 0.6, 4),
-            credible_interval_lower=round(max(0.0, 1.0 - risk * 0.6 - 0.1), 4),
-            credible_interval_upper=round(min(1.0, 1.0 - risk * 0.6 + 0.1), 4),
+            resolution_probability=res_prob,
+            credible_interval_lower=round(max(0.0, res_prob - 0.1), 4),
+            credible_interval_upper=round(min(1.0, res_prob + 0.1), 4),
             risk_gap=round(gap, 4),
             regulatory_risk=round(risk, 4),
             intervention_effect=0.05,
-            company_baseline=0.35,
+            company_baseline=baseline,
             company_resolution_rate=None,
             posterior_std=0.1,
             feature_contributions={"compliance_risk": round(risk, 4)},
             risk_level=level,
             recommended_action=_recommended_action(level, classification.predicted_product),
             confidence=0.4,
+            key_finding=generate_key_finding(res_prob, gap, classification.predicted_product, baseline),
             reasoning="Bayesian model unavailable; rule-based fallback applied using compliance_risk_score.",
         )
