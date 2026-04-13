@@ -1,0 +1,248 @@
+{
+  "total_complaints_analyzed": 100000,
+  "total_complaints_in_database": 14380818,
+  "unique_products": 21,
+  "unique_issues": 159,
+  "with_narratives": 26079,
+  "without_narratives": 73921,
+  "response_distribution": {
+    "Closed with explanation": 59823,
+    "Closed with non-monetary relief": 35476,
+    "In progress": 2868,
+    "Closed with monetary relief": 1411,
+    "Untimely response": 166,
+    "Closed without relief": 114,
+    "Closed": 108,
+    "Closed with relief": 34
+  },
+  "pct_closed_with_explanation": 59.8,
+  "pct_got_resolution": 36.9,
+  "resolution_rates_by_product": {
+    "Credit reporting or other personal consumer reports": {
+      "rate": 44.7,
+      "count": 63355
+    },
+    "Credit card": {
+      "rate": 32.2,
+      "count": 2087
+    },
+    "Prepaid card": {
+      "rate": 30.5,
+      "count": 141
+    },
+    "Credit reporting, credit repair services, or other personal consumer reports": {
+      "rate": 30.2,
+      "count": 15047
+    },
+    "Credit card or prepaid card": {
+      "rate": 29.1,
+      "count": 1434
+    },
+    "Credit reporting": {
+      "rate": 28.9,
+      "count": 976
+    },
+    "Bank account or service": {
+      "rate": 27.7,
+      "count": 599
+    },
+    "Money transfers": {
+      "rate": 21.6,
+      "count": 37
+    },
+    "Checking or savings account": {
+      "rate": 19.4,
+      "count": 2466
+    },
+    "Debt collection": {
+      "rate": 19.0,
+      "count": 7326
+    },
+    "Consumer Loan": {
+      "rate": 15.1,
+      "count": 219
+    },
+    "Debt or credit management": {
+      "rate": 12.3,
+      "count": 57
+    },
+    "Vehicle loan or lease": {
+      "rate": 9.6,
+      "count": 637
+    },
+    "Payday loan, title loan, personal loan, or advance loan": {
+      "rate": 9.5,
+      "count": 200
+    },
+    "Money transfer, virtual currency, or money service": {
+      "rate": 9.4,
+      "count": 1207
+    },
+    "Payday loan, title loan, or personal loan": {
+      "rate": 8.5,
+      "count": 212
+    },
+    "Student loan": {
+      "rate": 8.4,
+      "count": 864
+    },
+    "Payday loan": {
+      "rate": 7.9,
+      "count": 38
+    },
+    "Mortgage": {
+      "rate": 7.8,
+      "count": 3090
+    },
+    "Other financial service": {
+      "rate": 0.0,
+      "count": 7
+    },
+    "Virtual currency": {
+      "rate": 0.0,
+      "count": 1
+    }
+  },
+  "product_distribution": {
+    "Credit reporting or other personal consumer reports": 63355,
+    "Credit reporting, credit repair services, or other personal consumer reports": 15047,
+    "Debt collection": 7326,
+    "Mortgage": 3090,
+    "Checking or savings account": 2466,
+    "Credit card": 2087,
+    "Credit card or prepaid card": 1434,
+    "Money transfer, virtual currency, or money service": 1207,
+    "Credit reporting": 976,
+    "Student loan": 864,
+    "Vehicle loan or lease": 637,
+    "Bank account or service": 599,
+    "Consumer Loan": 219,
+    "Payday loan, title loan, or personal loan": 212,
+    "Payday loan, title loan, personal loan, or advance loan": 200,
+    "Prepaid card": 141,
+    "Debt or credit management": 57,
+    "Payday loan": 38,
+    "Money transfers": 37,
+    "Other financial service": 7,
+    "Virtual currency": 1
+  },
+  "product_distribution_pct": {
+    "Credit reporting or other personal consumer reports": 63.4,
+    "Credit reporting, credit repair services, or other personal consumer reports": 15.0,
+    "Debt collection": 7.3,
+    "Mortgage": 3.1,
+    "Checking or savings account": 2.5,
+    "Credit card": 2.1,
+    "Credit card or prepaid card": 1.4,
+    "Money transfer, virtual currency, or money service": 1.2,
+    "Credit reporting": 1.0,
+    "Student loan": 0.9,
+    "Vehicle loan or lease": 0.6,
+    "Bank account or service": 0.6,
+    "Consumer Loan": 0.2,
+    "Payday loan, title loan, or personal loan": 0.2,
+    "Payday loan, title loan, personal loan, or advance loan": 0.2,
+    "Prepaid card": 0.1,
+    "Debt or credit management": 0.1,
+    "Payday loan": 0.0,
+    "Money transfers": 0.0,
+    "Other financial service": 0.0,
+    "Virtual currency": 0.0
+  },
+  "top_issues": {
+    "Incorrect information on your report": 42704,
+    "Improper use of your report": 19461,
+    "Problem with a company's investigation into an existing problem": 11950,
+    "Problem with a credit reporting company's investigation into an existing problem": 4015,
+    "Attempts to collect debt not owed": 2856,
+    "Written notification about debt": 1467,
+    "Managing an account": 1455,
+    "False statements or representation": 803,
+    "Took or threatened to take negative or legal action": 783,
+    "Loan modification,collection,foreclosure": 764,
+    "Trouble during payment process": 730,
+    "Incorrect information on credit report": 705,
+    "Problem with a purchase shown on your statement": 657,
+    "Loan servicing, payments, escrow account": 523,
+    "Communication tactics": 508,
+    "Other transaction problem": 469,
+    "Struggling to pay mortgage": 447,
+    "Unable to get your credit report or credit score": 420,
+    "Dealing with your lender or servicer": 398,
+    "Cont'd attempts collect debt not owed": 392
+  },
+  "top_companies": {
+    "EQUIFAX, INC.": 26248,
+    "TRANSUNION INTERMEDIATE HOLDINGS, INC.": 26071,
+    "Experian Information Solutions Inc.": 23378,
+    "BANK OF AMERICA, NATIONAL ASSOCIATION": 1219,
+    "WELLS FARGO & COMPANY": 1153,
+    "JPMORGAN CHASE & CO.": 1149,
+    "CAPITAL ONE FINANCIAL CORPORATION": 1056,
+    "CITIBANK, N.A.": 853,
+    "SYNCHRONY FINANCIAL": 518,
+    "Resurgent Capital Services L.P.": 449,
+    "Block, Inc.": 417,
+    "ENCORE CAPITAL GROUP INC.": 393,
+    "CBC Companies, Inc.": 369,
+    "AMERICAN EXPRESS COMPANY": 365,
+    "Portfolio Recovery Associates, LLC": 355,
+    "DISCOVER BANK": 337,
+    "U.S. BANCORP": 332,
+    "LEXISNEXIS": 325,
+    "NAVY FEDERAL CREDIT UNION": 314,
+    "Bread Financial Holdings, Inc.": 312
+  },
+  "narrative_length_median": 662,
+  "narrative_length_mean": 1011,
+  "top_states": {
+    "FL": 13583,
+    "TX": 13238,
+    "CA": 10107,
+    "GA": 7391,
+    "NY": 5879,
+    "IL": 4286,
+    "PA": 3935,
+    "NC": 3482,
+    "NJ": 3242,
+    "MD": 2459
+  },
+  "high_risk_gap_count": 11974,
+  "high_risk_gap_pct": 12.0,
+  "mean_risk_gap": -0.098,
+  "mean_resolution_probability": 0.367,
+  "mean_regulatory_risk": 0.27,
+  "bayesian_training_samples": 34991,
+  "bayesian_coefficients": {
+    "product_rate": {
+      "mean": 0.5814835713842172,
+      "std": 0.013753721937554251,
+      "ci_lower": 0.5540096732203874,
+      "ci_upper": 0.6084511712558588
+    },
+    "narrative_length": {
+      "mean": -0.016207964083282768,
+      "std": 0.016970017645893377,
+      "ci_lower": -0.05017728003732128,
+      "ci_upper": 0.015904381174972466
+    },
+    "mentions_regulation": {
+      "mean": 0.013545036474996735,
+      "std": 0.0146498786564392,
+      "ci_lower": -0.014729866333213056,
+      "ci_upper": 0.04160200273284075
+    },
+    "mentions_attorney": {
+      "mean": -0.046321757275998875,
+      "std": 0.01408186567392749,
+      "ci_lower": -0.0742589143129481,
+      "ci_upper": -0.018176238590260865
+    },
+    "mentions_dollar": {
+      "mean": 0.06992108379177417,
+      "std": 0.01576437458068954,
+      "ci_lower": 0.03932793869439025,
+      "ci_upper": 0.10097249106659048
+    }
+  }
+}

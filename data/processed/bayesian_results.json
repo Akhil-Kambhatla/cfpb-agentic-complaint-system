@@ -1,0 +1,81 @@
+{
+  "intercept_mean": -0.600014700534857,
+  "coefficients": {
+    "product_rate": {
+      "mean": 0.5814835713842172,
+      "std": 0.013753721937554251,
+      "ci_lower": 0.5540096732203874,
+      "ci_upper": 0.6084511712558588
+    },
+    "narrative_length": {
+      "mean": -0.016207964083282768,
+      "std": 0.016970017645893377,
+      "ci_lower": -0.05017728003732128,
+      "ci_upper": 0.015904381174972466
+    },
+    "mentions_regulation": {
+      "mean": 0.013545036474996735,
+      "std": 0.0146498786564392,
+      "ci_lower": -0.014729866333213056,
+      "ci_upper": 0.04160200273284075
+    },
+    "mentions_attorney": {
+      "mean": -0.046321757275998875,
+      "std": 0.01408186567392749,
+      "ci_lower": -0.0742589143129481,
+      "ci_upper": -0.018176238590260865
+    },
+    "mentions_dollar": {
+      "mean": 0.06992108379177417,
+      "std": 0.01576437458068954,
+      "ci_lower": 0.03932793869439025,
+      "ci_upper": 0.10097249106659048
+    }
+  },
+  "scaler_mean": [
+    0.3672372895887514,
+    264.6234460289789,
+    0.08013489182932754,
+    0.07721985653453746,
+    0.20651024549169786
+  ],
+  "scaler_scale": [
+    0.1143517572529054,
+    779.0825009754343,
+    0.27150191701133447,
+    0.2669399750717807,
+    0.40480089426612753
+  ],
+  "feature_names": [
+    "product_rate",
+    "narrative_length",
+    "mentions_regulation",
+    "mentions_attorney",
+    "mentions_dollar"
+  ],
+  "training_samples": 34991,
+  "resolution_rate": 0.3672372895887514,
+  "product_rates": {
+    "Bank account or service": 0.23923444976076555,
+    "Checking or savings account": 0.186558516801854,
+    "Consumer Loan": 0.19736842105263158,
+    "Credit card": 0.3232876712328767,
+    "Credit card or prepaid card": 0.27944111776447106,
+    "Credit reporting": 0.25513196480938416,
+    "Credit reporting or other personal consumer reports": 0.4457021737169658,
+    "Credit reporting, credit repair services, or other personal consumer reports": 0.29794910748195974,
+    "Debt collection": 0.1981279251170047,
+    "Debt or credit management": 0.2631578947368421,
+    "Money transfer, virtual currency, or money service": 0.08767772511848342,
+    "Money transfers": 0.16666666666666666,
+    "Mortgage": 0.07493061979648474,
+    "Other financial service": 0.0,
+    "Payday loan": 0.0,
+    "Payday loan, title loan, or personal loan": 0.04054054054054054,
+    "Payday loan, title loan, personal loan, or advance loan": 0.1,
+    "Prepaid card": 0.2857142857142857,
+    "Student loan": 0.09271523178807947,
+    "Vehicle loan or lease": 0.10810810810810811,
+    "Virtual currency": 0.0
+  }
+}
