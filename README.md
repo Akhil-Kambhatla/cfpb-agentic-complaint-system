@@ -143,7 +143,7 @@ Attorney mentions are negatively associated with resolution — a counterintuiti
 Uses **Claude Sonnet** (requires sustained reasoning). Traces the chronological sequence of events in the complaint narrative — what happened first, what it caused, where the complaint escalated — and identifies the root event and the single most effective intervention point. This is LLM-based pattern recognition over narrative text, not formal causal DAG inference.
 
 - **Model:** Claude Sonnet (`claude-sonnet-4-20250514`)
-- **Output:** causal chain (list of cause→effect edges), root cause, causal depth, counterfactual intervention, prevention recommendation
+- **Output:** causal chain (list of cause→effect edges), root cause, causal depth, prevention recommendation
 - **Latency:** ~10 seconds (pipeline bottleneck)
 
 ### 4. Router Agent
