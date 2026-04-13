@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, useInView } from "framer-motion";
+import Image from "next/image";
 import {
-  Trophy, ArrowRight, GitBranch, Database, Users,
+  Trophy, ArrowRight, GitBranch, Database,
 } from "lucide-react";
 
 // ─── Count-up animation ────────────────────────────────────────────────────────
@@ -120,23 +121,40 @@ function AgentRow({ num, name, color, desc }: { num: number; name: string; color
   );
 }
 
-// ─── Team placeholder card ────────────────────────────────────────────────────
-function TeamCard({ name }: { name: string }) {
+// ─── Team member card ─────────────────────────────────────────────────────────
+function TeamMemberCard({
+  firstName, lastName, program, photo, initials, placeholderColor,
+}: {
+  firstName: string; lastName: string; program: string;
+  photo?: string; initials: string; placeholderColor: string;
+}) {
   return (
-    <div style={{
-      borderRadius: 14, border: "1px solid #e5e7eb", background: "#fff",
-      padding: "20px 16px", textAlign: "center",
-      boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
-    }}>
+    <div style={{ textAlign: "center" }}>
       <div style={{
-        width: 56, height: 56, borderRadius: "50%",
-        background: "#e5e7eb", margin: "0 auto 12px",
+        width: 120, height: 120, borderRadius: "50%", margin: "0 auto 14px",
+        overflow: "hidden", flexShrink: 0,
+        background: photo ? "transparent" : placeholderColor,
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
-        <Users style={{ width: 24, height: 24, color: "#9ca3af" }} />
+        {photo ? (
+          <Image
+            src={photo}
+            alt={`${firstName} ${lastName}`}
+            width={120}
+            height={120}
+            style={{ objectFit: "cover", width: "100%", height: "100%", borderRadius: "50%" }}
+          />
+        ) : (
+          <span style={{ fontSize: 36, fontWeight: 800, color: "#fff" }}>{initials}</span>
+        )}
       </div>
-      <p style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>{name}</p>
-      <p style={{ fontSize: 11, color: "#6b7280", margin: 0 }}>University of Maryland, MS Data Science</p>
+      <p style={{ fontSize: 16, fontWeight: 600, color: "#111827", margin: "0 0 4px", textAlign: "center" }}>
+        {firstName}
+      </p>
+      <p style={{ fontSize: 16, fontWeight: 600, color: "#111827", margin: "0 0 6px", textAlign: "center" }}>
+        {lastName}
+      </p>
+      <p style={{ fontSize: 13, color: "#6b7280", margin: 0, textAlign: "center" }}>{program}</p>
     </div>
   );
 }
@@ -281,8 +299,24 @@ export default function AboutPage() {
         </div>
       </SectionWrapper>
 
-      {/* ── 2. The Problem ───────────────────────────────────────────────────── */}
+      {/* ── 2. Team Samanvay ─────────────────────────────────────────────────── */}
       <SectionWrapper bg="#f9fafb">
+        <div style={{ textAlign: "center", marginBottom: 40 }}>
+          <h2 style={{ fontSize: 30, fontWeight: 800, color: "#111827", margin: "0 0 8px", lineHeight: 1.2 }}>
+            Team Samanvay
+          </h2>
+          <p style={{ fontSize: 15, color: "#6b7280", margin: 0 }}>University of Maryland, College Park</p>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 32, maxWidth: 860, margin: "0 auto" }}>
+          <TeamMemberCard firstName="Akhil" lastName="Kambhatla" program="MSDS" photo="/team/akhil_kambhatla.jpeg" initials="AK" placeholderColor="#10b981" />
+          <TeamMemberCard firstName="Hemanth" lastName="Thulasiraman" program="MSDS" photo="/team/hemanth_thulasiraman.jpeg" initials="HT" placeholderColor="#3b82f6" />
+          <TeamMemberCard firstName="Ravi" lastName="Parvatham" program="MSML" photo="/team/ravi_parvatham.jpeg" initials="RP" placeholderColor="#8b5cf6" />
+          <TeamMemberCard firstName="Namratha" lastName="Jeethendra" program="MSDS" photo="/team/namratha_jeethendra.jpeg" initials="NJ" placeholderColor="#f59e0b" />
+        </div>
+      </SectionWrapper>
+
+      {/* ── 3. The Problem ───────────────────────────────────────────────────── */}
+      <SectionWrapper bg="#ffffff">
         <SectionTitle>The $2.9 Billion Problem</SectionTitle>
 
         <div style={{ display: "flex", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
@@ -705,7 +739,122 @@ export default function AboutPage() {
         </Card>
       </SectionWrapper>
 
-      {/* ── 9. Tech Stack ────────────────────────────────────────────────────── */}
+      {/* ── 9. Future Roadmap ────────────────────────────────────────────────── */}
+      <SectionWrapper bg="#f9fafb">
+        <SectionTitle>Future Roadmap</SectionTitle>
+        <p style={{ fontSize: 15, color: "#6b7280", marginTop: -16, marginBottom: 8, fontWeight: 500 }}>
+          Transforming complaint intelligence into a complete compliance operations platform
+        </p>
+        <p style={{ fontSize: 14, color: "#4b5563", lineHeight: 1.75, marginBottom: 32 }}>
+          Our current system demonstrates the core autonomous complaint management lifecycle. The features below represent our development roadmap for transforming this into a production-grade platform that addresses the most critical gaps in the $3.2B complaint management market.
+        </p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+          {/* Left: New Agents */}
+          <div>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 14px" }}>
+              New Agents
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {[
+                {
+                  title: "Regulatory Risk Prediction Agent",
+                  desc: "Analyzes complaint patterns across companies and predicts which patterns will likely attract CFPB enforcement action. Uses historical enforcement data combined with current complaint trends to generate early warnings. Example: 'Bank of America's mortgage complaint pattern matches 3 of 5 indicators that preceded recent enforcement actions.'",
+                  tagLabel: "Novel — no existing solution offers this",
+                  tagBg: "#d1fae5", tagColor: "#065f46",
+                },
+                {
+                  title: "Proactive Outreach Agent",
+                  desc: "Instead of waiting for complaints, this agent monitors account activity patterns (unusual fees, payment failures, service disruptions) to identify customers likely to file complaints BEFORE they do. Triggers preemptive contact and resolution, reducing complaint volume at the source.",
+                  tagLabel: "Preventive — shifts from reactive to proactive",
+                  tagBg: "#dbeafe", tagColor: "#1e40af",
+                },
+                {
+                  title: "Churn Risk Agent",
+                  desc: "Connects complaint data to customer lifetime value. For each complaint, calculates the revenue at risk if the complaint is mishandled. Example: 'Dismissing this complaint carries a 40% churn probability, representing $12,000 in customer lifetime value.' Makes the business case for resolution in dollar terms.",
+                  tagLabel: "Revenue impact — speaks the language of executives",
+                  tagBg: "#ede9fe", tagColor: "#5b21b6",
+                },
+                {
+                  title: "Multi-Channel Ingestion Agent",
+                  desc: "Ingests complaints from email, social media, phone call transcripts (via speech-to-text), web forms, and regulatory portals. Normalizes all formats into the standard processing pipeline. A single entry point for complaints regardless of channel.",
+                  tagLabel: "Enterprise-ready — handles real-world complexity",
+                  tagBg: "#fef3c7", tagColor: "#92400e",
+                },
+              ].map(({ title, desc, tagLabel, tagBg, tagColor }) => (
+                <div key={title} style={{
+                  background: "#ffffff", border: "1px solid #e5e7eb",
+                  borderRadius: 12, padding: "20px",
+                  display: "flex", flexDirection: "column", gap: 8,
+                }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: "#111827", margin: 0 }}>{title}</p>
+                  <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.65, margin: 0, flex: 1 }}>{desc}</p>
+                  <span style={{
+                    display: "inline-block", background: tagBg, color: tagColor,
+                    borderRadius: 9999, padding: "3px 10px", fontSize: 11, fontWeight: 600,
+                    alignSelf: "flex-start", marginTop: 4,
+                  }}>
+                    {tagLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Right: Platform Capabilities */}
+          <div>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 14px" }}>
+              Platform Capabilities
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {[
+                {
+                  title: "Fine-Tuned Classification Model",
+                  desc: "Train a specialized model (LoRA fine-tuning on open-source LLM) on CFPB labeled data for 95%+ product accuracy, sub-second classification, and zero per-complaint API cost. Reduces classification latency from 2 seconds to under 100 milliseconds.",
+                  tagLabel: "Performance — 20x faster, 10x cheaper",
+                  tagBg: "#e0f2fe", tagColor: "#0369a1",
+                },
+                {
+                  title: "Semantic Complaint Search",
+                  desc: "Embedding-based similarity search across the entire complaint history. Find all complaints similar to a given one, even if they use completely different language. Enables pattern discovery that keyword search misses.",
+                  tagLabel: "Intelligence — finds hidden connections",
+                  tagBg: "#e0e7ff", tagColor: "#3730a3",
+                },
+                {
+                  title: "Automated Regulatory Reporting",
+                  desc: "Auto-generates the quarterly CFPB compliance reports that every financial institution must file. Currently these take compliance teams weeks to compile manually. The system generates them in minutes from its case database.",
+                  tagLabel: "Compliance — saves weeks of manual work",
+                  tagBg: "#ccfbf1", tagColor: "#115e59",
+                },
+                {
+                  title: "Complaint-to-Revenue Analytics",
+                  desc: "Connects complaint patterns to business metrics: customer churn rate by complaint type, revenue impact of resolution delays, cost of regulatory inaction. Provides executives with a financial dashboard that translates complaint data into business decisions.",
+                  tagLabel: "Business value — from compliance cost to strategic asset",
+                  tagBg: "#ffe4e6", tagColor: "#9f1239",
+                },
+              ].map(({ title, desc, tagLabel, tagBg, tagColor }) => (
+                <div key={title} style={{
+                  background: "#ffffff", border: "1px solid #e5e7eb",
+                  borderRadius: 12, padding: "20px",
+                  display: "flex", flexDirection: "column", gap: 8,
+                }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: "#111827", margin: 0 }}>{title}</p>
+                  <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.65, margin: 0, flex: 1 }}>{desc}</p>
+                  <span style={{
+                    display: "inline-block", background: tagBg, color: tagColor,
+                    borderRadius: 9999, padding: "3px 10px", fontSize: 11, fontWeight: 600,
+                    alignSelf: "flex-start", marginTop: 4,
+                  }}>
+                    {tagLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </SectionWrapper>
+
+      {/* ── 10. Tech Stack ───────────────────────────────────────────────────── */}
       <SectionWrapper bg="#ffffff">
         <SectionTitle>Technology Stack</SectionTitle>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
@@ -731,19 +880,6 @@ export default function AboutPage() {
         </div>
       </SectionWrapper>
 
-      {/* ── 10. Team ─────────────────────────────────────────────────────────── */}
-      <SectionWrapper bg="#f9fafb">
-        <SectionTitle>The Team</SectionTitle>
-        <p style={{ fontSize: 13, color: "#6b7280", marginTop: -16, marginBottom: 24 }}>
-          University of Maryland — Master&apos;s in Data Science
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-          <TeamCard name="Team Member 1" />
-          <TeamCard name="Team Member 2" />
-          <TeamCard name="Team Member 3" />
-          <TeamCard name="Team Member 4" />
-        </div>
-      </SectionWrapper>
 
     </div>
   );

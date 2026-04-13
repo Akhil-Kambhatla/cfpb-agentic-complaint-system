@@ -30,6 +30,7 @@ import {
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
+import InfoTooltip from "@/components/InfoTooltip";
 
 const API = "http://localhost:8000/api";
 const ITEMS_PER_PAGE = 20;
@@ -1071,9 +1072,12 @@ function CaseSummaryCard({
           marginTop: 12, padding: "10px 12px", background: "#f8fafc",
           borderRadius: 8, border: "1px solid #e2e8f0",
         }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            Customer Satisfaction
-          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, margin: "0 0 8px" }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", margin: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Customer Satisfaction
+            </p>
+            <InfoTooltip text="Estimated from dispute rates in our 100,000-complaint CFPB dataset. Based on 5,271 complaints with dispute data. Monetary relief: 4.6/5 (9.9% dispute rate). Explanation only: 3.9/5 (21.5% dispute rate). Adjustments for response time, severity, and product complexity." />
+          </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
             <span style={{ fontSize: 11, color: "#6b7280" }}>Predicted CSAT</span>
             <span style={{
