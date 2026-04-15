@@ -4,8 +4,9 @@ import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { API_BASE_URL } from "@/config";
 
-const API = "http://localhost:8000/api";
+const API = `${API_BASE_URL}/api`;
 
 // All chart components are client-only (Recharts needs browser)
 const Charts = dynamic(() => import("@/components/EvaluationCharts").then((m) => ({

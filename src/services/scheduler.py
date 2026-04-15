@@ -130,7 +130,7 @@ def _poll_and_process() -> None:
         save_activity("error", f"[ERROR] Batch processing failed: {exc}", None, "critical")
 
 
-def start_monitoring(interval_minutes: int = 30) -> None:
+def start_monitoring(interval_minutes: int = 1440) -> None:
     """Start the background APScheduler polling loop."""
     global _scheduler, _start_time
 
@@ -150,7 +150,7 @@ def start_monitoring(interval_minutes: int = 30) -> None:
         _scheduler = BackgroundScheduler(
             job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 60}
         )
-        # CFPB poll: every 30 minutes
+        # CFPB poll: once per day (1440 minutes) to conserve API credits
         _scheduler.add_job(
             _poll_and_process,
             trigger="interval",
@@ -211,7 +211,7 @@ def get_status() -> dict:
 
     running = _scheduler is not None and _scheduler.running
     state = get_system_state()
-    interval = int(state.get("poll_interval_minutes", 30))
+    interval = int(state.get("poll_interval_minutes", 1440))
 
     next_run = None
     if running and _scheduler is not None:

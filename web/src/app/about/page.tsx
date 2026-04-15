@@ -6,6 +6,7 @@ import Image from "next/image";
 import {
   Trophy, ArrowRight, GitBranch, Database,
 } from "lucide-react";
+import { API_BASE_URL } from "@/config";
 
 // ─── Count-up animation ────────────────────────────────────────────────────────
 function CountUp({
@@ -232,7 +233,7 @@ interface DatasetStats {
   unique_products: number;
 }
 
-const API = "http://localhost:8000/api";
+const API = `${API_BASE_URL}/api`;
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function AboutPage() {

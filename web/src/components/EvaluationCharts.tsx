@@ -8,6 +8,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import * as d3 from "d3";
+import { API_BASE_URL } from "@/config";
 
 // ─── 1. Animated Radial Gauge ─────────────────────────────────────────────────
 interface GaugeProps { value: number; label: string; }
@@ -262,7 +263,7 @@ const CP_PAD  = 74;
 const CP_VW   = CP_PACK + CP_PAD * 2; // 748
 const CP_VH   = CP_PACK + CP_PAD * 2; // 748
 
-const CP_API  = "http://localhost:8000/api";
+const CP_API  = `${API_BASE_URL}/api`;
 
 // Color palette keyed by canonical product name
 const CP_COLORS: Record<string, string> = {

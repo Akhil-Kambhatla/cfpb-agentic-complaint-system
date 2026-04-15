@@ -26,12 +26,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://*.netlify.app",
-        "https://*.netlify.com",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,7 +52,7 @@ async def startup_event():
     try:
         from src.data.database import get_system_state
         state = get_system_state()
-        interval = int(state.get("poll_interval_minutes", os.getenv("CFPB_POLL_INTERVAL_MINUTES", "30")))
+        interval = int(state.get("poll_interval_minutes", os.getenv("CFPB_POLL_INTERVAL_MINUTES", "1440")))
         from src.services.scheduler import start_monitoring
         start_monitoring(interval)
         logger.info("Monitoring started with %d-minute interval", interval)

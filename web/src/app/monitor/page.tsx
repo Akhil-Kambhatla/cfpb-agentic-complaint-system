@@ -31,8 +31,9 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import InfoTooltip from "@/components/InfoTooltip";
+import { API_BASE_URL } from "@/config";
 
-const API = "http://localhost:8000/api";
+const API = `${API_BASE_URL}/api`;
 const ITEMS_PER_PAGE = 20;
 
 // ──────────────────────────────────────────────
