@@ -283,7 +283,7 @@ export default function AboutPage() {
 
           <div style={{ display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap" }}>
             {[
-              { value: "70%", label: "Product accuracy", color: "#10b981" },
+              { value: "88%", label: "Product accuracy", color: "#10b981" },
               { value: "6", label: "Specialized agents", color: "#0ea5e9" },
               { value: "~28s", label: "Avg pipeline latency (6 agents, 2 in parallel)", color: "#8b5cf6" },
               { value: String(uniqueProducts), label: "Product categories", color: "#f59e0b" },
