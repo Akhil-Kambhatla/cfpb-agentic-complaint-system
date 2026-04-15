@@ -162,11 +162,11 @@ function BayesianFindings() {
             This disparity is structural.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            {resolutionRates.map(({ product, rate }) => {
+            {resolutionRates.map(({ product, rate }, index) => {
               const pct = (rate / maxRate) * 100;
               const color = rate >= 35 ? "#10b981" : rate >= 20 ? "#f59e0b" : "#e11d48";
               return (
-                <div key={product}>
+                <div key={`${product}-${index}`}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
                     <span style={{ fontSize: 9, color: "#374151" }}>{product}</span>
                     <span style={{ fontSize: 9, color, fontWeight: 700, fontFamily: "monospace" }}>{rate}%</span>
@@ -325,8 +325,8 @@ function EvaluationContent({
         delay={0.1}
       >
         <GaugeRow metrics={[
-          { value: 0.70, label: "Product Accuracy" },
-          { value: 0.36, label: "Issue Accuracy" },
+          { value: 0.88, label: "Product Accuracy" },
+          { value: 0.54, label: "Issue Accuracy" },
           { value: 0.89, label: "Avg Confidence" },
           { value: 0.66, label: "Avg Compliance Risk" },
         ]} />
@@ -334,8 +334,8 @@ function EvaluationContent({
           Source: 50-complaint stratified evaluation set. Product accuracy and issue accuracy measured against CFPB ground truth labels. Avg compliance risk is our rule-based heuristic score, not an externally validated metric.
         </p>
         <Interpretation>
-          Product accuracy of 70% means our classifier correctly identifies the financial product category
-          for 7 out of 10 complaints. Issue accuracy is lower at 36% because CFPB issue labels are
+          Product accuracy of 88% means our classifier correctly identifies the financial product category
+          for nearly 9 out of 10 complaints. Issue accuracy is lower at 54% because CFPB issue labels are
           consumer-selected from dropdown menus, and our system often identifies a more precise issue by
           reading the full narrative.
         </Interpretation>
