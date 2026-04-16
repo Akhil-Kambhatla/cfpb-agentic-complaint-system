@@ -488,7 +488,7 @@ University of Maryland, College Park — 2026 UMD Agentic AI Challenge
 
 ## Acknowledgments
 
-- [2026 UMD Agentic AI Challenge]([https://www.rhsmith.umd.edu/](https://www.rhsmith.umd.edu/centers-initiatives/artificial-intelligence-business/agentic-ai-challenge)) — Robert H. Smith School of Business
+- [2026 UMD Agentic AI Challenge](https://www.rhsmith.umd.edu/centers-initiatives/artificial-intelligence-business/agentic-ai-challenge) — Robert H. Smith School of Business
 - [CFPB Consumer Complaint Database](https://www.consumerfinance.gov/data-research/consumer-complaints/) — public data, updated daily
 - [Anthropic](https://www.anthropic.com/) — Claude AI
 - [PyMC](https://www.pymc.io/) — Bayesian inference
