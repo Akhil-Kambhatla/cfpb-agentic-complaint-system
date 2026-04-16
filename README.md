@@ -12,6 +12,7 @@ This system processes CFPB consumer complaint narratives through a six-agent AI 
 
 ## Live Demo
 **[cfpb-agentic-complaint-system.vercel.app](https://cfpb-agentic-complaint-system.vercel.app)**
+
 No setup required. API key pre-configured on the demo server.
 ---
 
