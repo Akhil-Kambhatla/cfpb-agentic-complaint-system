@@ -10,6 +10,9 @@
 
 This system processes CFPB consumer complaint narratives through a six-agent AI pipeline that classifies complaints, assesses regulatory risk with Bayesian inference, traces the event chain leading to the complaint, routes to the correct internal team via Slack, generates a regulatory-compliant resolution plan and customer letter, and manages the full case lifecycle through a Kanban-style dashboard. What makes it different from generic complaint management software is the Bayesian risk layer: a PyMC logistic regression model trained on 35,000 real CFPB complaints predicts each complaint's resolution probability with a 95% credible interval, surfaces a **risk gap** (cases likely to be dismissed that should not be), and drives prioritization — a finding grounded in the key result that product type alone (coefficient 0.58) explains most of the variance in resolution outcomes. The system integrates real Slack webhooks, real Gmail delivery, and polls the live CFPB API autonomously every 30 minutes.
 
+## Live Demo
+**[cfpb-agentic-complaint-system.vercel.app](https://cfpb-agentic-complaint-system.vercel.app)**
+No setup required. API key pre-configured on the demo server.
 ---
 
 ## Quick Start
